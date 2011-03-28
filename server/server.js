@@ -127,6 +127,9 @@ sys.print("req: " + req.method + '\n');
     });
   } else {
     var filePath = querystring.unescape(url.parse(req.url).pathname);
+    if (filePath == "/") {
+      filePath = "/index.html";
+    }
     var fullPath = path.join(process.cwd(), filePath);
     sys.print("path: " + fullPath + "\n");
     var mimeType = getMimeType(fullPath);

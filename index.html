@@ -240,14 +240,14 @@ function updateKey(keyCode, state) {
 }
 
 function keyUp(event) {
-  logTo("status", "keyUp: " + event.keyCode);
+  //logTo("status", "keyUp: " + event.keyCode);
   var s = document.getElementById("status");
   s.scrollTop = s.scrollHeight;
   updateKey(event.keyCode, false);
 }
 
 function keyDown(event) {
-  logTo("status", "keyDown: " + event.keyCode);
+  //logTo("status", "keyDown: " + event.keyCode);
   var s = document.getElementById("status");
   s.scrollTop = s.scrollHeight;
   updateKey(event.keyCode, true);
