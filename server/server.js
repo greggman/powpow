@@ -165,6 +165,11 @@ var g_numServers = 0;
 io.on('connection', function(client){
   addClient(client);
 
+  sendMsgToServer({
+      cmd: 'start',
+      id: client.sessionId,
+  });
+
   client.on('message', function(message){
     console.log("msg:" + message);
     processMessage(client, message);
@@ -197,7 +202,7 @@ function removeClient(client) {
 }
 
 function addServer(client) {
-  if (g_servers[client.sessionId]) {
+  if (!g_servers[client.sessionId]) {
     g_servers[client.sessionId] = client;
     ++g_numServers;
     console.log("add: num servers: " + g_numServers);
@@ -234,7 +239,7 @@ function sendMsgToServer(msg) {
 // --- messages to relay server ---
 //
 // server:
-//   desc: identifies this sessionas a server
+//   desc: identifies this session as a server
 //   args: none
 //
 // client:
@@ -269,13 +274,13 @@ function processMessage(client, message) {
   switch (message.cmd) {
     case 'server':
       removeClient(client);
-      addServer(id, client);
+      addServer(client);
       g_servers[client.sessionId] = client;
       break;
     case 'client': {
       var client = g_clients[message.id];
       if (client) {
-        client.send(msg.data);
+        client.send(message.data);
       } else {
         console.log("no client: " + message.id);
       }

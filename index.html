@@ -3,6 +3,10 @@
 <head>
 <meta name="viewport" content="user-scalable=no, width=device-width, height=device-height">
 <title>PowPow Feature Test</title>
+<link rel="stylesheet" media="all and (max-device-width: 480px)" href="phone.css">
+<link rel="stylesheet" media="all and (min-device-width: 481px) and (max-device-width: 1024px) and (orientation:portrait)" href="tablet-portrait.css">
+<link rel="stylesheet" media="all and (min-device-width: 481px) and (max-device-width: 1024px) and (orientation:landscape)" href="tablet-landscape.css">
+<link rel="stylesheet" media="all and (min-device-width: 1025px)" href="monitor.css">
 <style>
 html, body {
   width: 100%;
@@ -19,7 +23,7 @@ html, body {
   background-color: green;
 }
 #status {
-  background-color: red;
+  gbackground-color: red;
   width: 100%;
   height: 300px;
   overflow: auto;
@@ -58,12 +62,6 @@ html, body {
   color: white;
   background-color: rgba(0, 0, 0, 0.2);
 }
-.msg {
-  font-weight: bold;
-  font-family: Arial Bold, arial, helvetica bold, helvetica, san-serif;
-  font-size: 100px;
-  margin: 40px;
-}
 #top {
   position: absolute;
   top: 0px;
@@ -78,6 +76,15 @@ html, body {
 <script>
 window.onload = main;
 
+var g_socket;
+var g_turn = 0;
+var g_oldTurn = 0;
+var g_left = false;
+var g_right = false;
+var g_fire = false;
+var g_keyState = {};
+var g_oldKeyState = {};
+
 function logTo(id, str) {
   var c = document.getElementById(id);
   var d = document.createElement("div");
@@ -91,6 +98,44 @@ function log() {
     s += arguments[ii].toString();
   }
   logTo("console", s);
+}
+
+function connect(server, port) {
+  var server = window.location.href.match(/\/\/(.*?)\//)[1];
+  var port = 8080;
+  g_socket = new io.Socket(null, {
+      port: port,
+      transports: [
+        'websocket',
+        'server-events',
+        'htmlfile',
+        'xhr-multipart',
+        'xhr-polling'
+      ]});
+  g_socket.connect();
+  g_socket.on('message', function(obj) {
+    processMessage(obj);
+  });
+}
+
+function sendCmd(cmd, data) {
+  g_socket.send({
+    cmd: cmd,
+    data: data
+  });
+}
+
+function processMessage(msg) {
+  switch (msg.cmd) {
+  case 'setColor':
+    var e = document.getElementById("surface");
+    e.style.backgroundColor = msg.color;
+    break;
+  case 'win':
+    break;
+  case 'lose':
+    break;
+  }
 }
 
 function debugTouch(label, event) {
@@ -124,24 +169,94 @@ function touchCancel(event) {
   debugTouch("cancel", event);
 }
 
+function handleKeyDown(keyCode, state) {
+  switch(event.keyCode) {
+  case 37: // left
+    if (!g_left) {
+      g_left = true;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: -1
+      });
+    }
+    break;
+  case 39: // right
+    if (!g_right) {
+      g_right = true;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: 1
+      });
+    }
+    break;
+  case 90: // z
+    if (!g_fire) {
+      g_fire = true;
+      sendCmd("update", {
+          cmd: 'fire',
+          fire: 1
+      });
+    }
+    break;
+  }
+}
+
+function handleKeyUp(keyCode, state) {
+  switch(event.keyCode) {
+  case 37: // left
+    g_left = false;
+    sendCmd("update", {
+        cmd: 'turn',
+        turn: (g_right) ? 1 : 0
+    });
+    break;
+  case 39: // right
+    g_right = false;
+    sendCmd("update", {
+        cmd: 'turn',
+        turn: (g_left) ? -1 : 0
+    });
+    break;
+  case 90: // z
+    g_fire = false;
+    sendCmd("update", {
+        cmd: 'fire',
+        fire: 0
+    });
+    break;
+  }
+}
+
+function updateKey(keyCode, state) {
+  g_keyState[keyCode] = state;
+  if (g_oldKeyState != g_keyState) {
+    g_oldKeyState = state;
+    if (state) {
+      handleKeyDown(keyCode);
+    } else {
+      handleKeyUp(keyCode);
+    }
+  }
+}
+
 function keyUp(event) {
   logTo("status", "keyUp: " + event.keyCode);
   var s = document.getElementById("status");
   s.scrollTop = s.scrollHeight;
+  updateKey(event.keyCode, false);
 }
 
 function keyDown(event) {
   logTo("status", "keyDown: " + event.keyCode);
   var s = document.getElementById("status");
   s.scrollTop = s.scrollHeight;
+  updateKey(event.keyCode, true);
 }
 
 function main() {
+  connect();
+
   var haveTouch = 'ontouchstart' in document
-  log("--start--")
-  log("Supports WebSockets:", window.WebSocket ? "YES" : "no");
-  log("Supports WebGL:", window.WebGLRenderingContext ? "Maybe" : "no");
-  log("Supports Touch Events:", haveTouch ? "Yes" : "no");
 
   var surface = document.getElementById("top");
   if (haveTouch) {
