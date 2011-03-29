@@ -147,6 +147,7 @@ function Player(x, y, clientId) {
   this.turnVel = Math.PI * 0.5;
   this.shots = [];
   this.maxShots = 3;
+  this.shotDuration = 3;
   this.shootTimer = 0;
   this.state = 'fly';
   g_entitySys.addEntity(this);
@@ -190,9 +191,8 @@ Player.prototype.update = function(msg) {
       break;
     case 'fire':
       this.fire = msg.fire;
-      if (this.fire) {
-        this.shoot();
-      }
+      if (this.fire == 0)
+        this.shootTimer = 0;
       break;
   }
 };
@@ -225,6 +225,12 @@ Player.prototype.process = function(elapsedTime) {
     }
     break;
   }
+
+  this.shootTimer = Math.max(this.shootTimer - elapsedTime, 0);
+  if (this.fire && this.shootTimer <= 0) {
+    this.shoot();
+    this.shootTimer = this.maxShots / this.shotDuration;
+  }
 };
 
 Player.prototype.draw = function(ctx) {
@@ -247,7 +253,7 @@ function Shot(x, y, direction, owner) {
   this.owner = owner;
   this.position = [x, y];
   this.vel = 300;
-  this.duration = 3;
+  this.duration = owner.shotDuration;
   this.direction = direction;
   this.drawCount = 0;
   g_entitySys.addEntity(this);
