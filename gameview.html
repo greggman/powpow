@@ -53,6 +53,8 @@ var g_ctx;
 var g_clock;
 var g_socket;
 var g_players = {};
+var g_queue = [];
+var g_activePlayers = [];
 var g_numPlayers = 0;
 
 var g_entitySys;
@@ -177,8 +179,12 @@ function Player(x, y, direction, clientId) {
   this.maxShots = 3;
   this.shotDuration = 3;
   this.shootTimer = 0;
-  this.setState('queued')
+  this.addToQueue();
   g_entitySys.addEntity(this);
+}
+
+Player.prototype.addToQueue = function() {
+  this.setState('queued');
 }
 
 Player.prototype.setState = function(state) {
@@ -326,14 +332,18 @@ Shot.prototype.process = function(elapsedTime) {
     var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
     updatePos(this.position, dx, dy);
 
+    var hit = false;
     for (var id in g_players) {
       if (id != this.ownerId) {
         var player = g_players[id];
         if (player.collide(this.position[0], this.position[1], 3)) {
-          this.remove();
+          hit = true;
           player.die();
         }
       }
+    }
+    if (hit) {
+      this.remove();
     }
   }
 };
