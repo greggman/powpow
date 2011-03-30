@@ -27,12 +27,12 @@ html, body {
   background-color: red;
   height: 100%;
 }
-#highscores {
+#highscores-outer {
   width: 100%;
   height: 50%;
   background-color: blue;
 }
-#highscores {
+#highscores-outer {
   width: 100%;
   height: 50%;
   background-color: blue;
@@ -450,26 +450,63 @@ function QueueManager() {
   this.launching_ = [];
   this.queue_ = [];
   this.timer_ = 0;
+  this.element_ = document.getElementById("queue");
+  this.elements_ = [];
+};
+
+QueueManager.prototype.draw = function() {
+  this.setElements_(0, this.launching_, true);
+  this.setElements_(this.launching_.length, this.queue_, false);
+  for (var ii = this.launching_.length + this.queue_.length;
+       ii < this.elements_.length; ++ii) {
+    var element = this.elements_[ii];
+    element.innerHTML = "";
+  }
+};
+
+QueueManager.prototype.getElement_ = function(index) {
+  var element = this.elements_[index];
+  if (!element) {
+    element = document.createElement("div");
+    this.element_.appendChild(element);
+    this.elements_.push(element);
+  }
+  return element;
+};
+
+QueueManager.prototype.setElements_ = function(index, players, launching) {
+  for (var ii = 0; ii < players.length; ++ii) {
+    var player = players[ii];
+    var element = this.getElement_(index + ii);
+    if (launching) {
+      element.innerHTML = "Launch: " + player.playerName;
+    } else {
+      element.innerHTML = "Waiting: " + player.playerName;
+    }
+  }
 };
 
 QueueManager.prototype.addToQueue = function(player) {
   this.queue_.push(player);
-}
+  this.draw();
+};
 
 QueueManager.prototype.removeFromQueue = function(player) {
   for (var ii = 0; ii < this.queue_.length; ++ii) {
     if (this.queue_[ii].id == player.id) {
       this.queue_.splice(ii, 1);
+      this.draw();
       return;
     }
   }
   for (var ii = 0; ii < this.launching_.length; ++ii) {
     if (this.launching_[ii].id == player.id) {
       this.launching_.splice(ii, 1);
+      this.draw();
       return;
     }
   }
-}
+};
 
 QueueManager.prototype.process = function(elapsedTime) {
   if (this.timer_ > 0) {
@@ -481,9 +518,10 @@ QueueManager.prototype.process = function(elapsedTime) {
       player.countdown();
       this.launching_.push(player);
       this.timer_ = 1;  // don't start another for at least 1 second.
+      this.draw();
     }
   }
-}
+};
 
 /**
  * Processes and Draws all the entities.
@@ -559,11 +597,17 @@ function main() {
 </head>
 <body>
 <div id="outer">
-<canvas id="canvas"></canvas>
-<div id="status">
-<div id="highscores">123</div>
-<div id="queue">456</div>
-</div>
+  <canvas id="canvas"></canvas>
+  <div id="status">
+    <div id="highscores-outer">
+      <div class="headline">High Score</div>
+      <div id="highscore"></div>
+    </div>
+    <div id="queue-outer">
+      <div class="headline">Waiting</div>
+      <div id="queue"></div>
+    </div>
+  </div>
 </div>
 </body>
 </html>
