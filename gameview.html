@@ -458,13 +458,13 @@ QueueManager.prototype.addToQueue = function(player) {
 
 QueueManager.prototype.removeFromQueue = function(player) {
   for (var ii = 0; ii < this.queue_.length; ++ii) {
-    if (this.queue_[ii].id = player.id) {
+    if (this.queue_[ii].id == player.id) {
       this.queue_.splice(ii, 1);
       return;
     }
   }
   for (var ii = 0; ii < this.launching_.length; ++ii) {
-    if (this.launching_[ii].id = player.id) {
+    if (this.launching_[ii].id == player.id) {
       this.launching_.splice(ii, 1);
       return;
     }
