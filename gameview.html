@@ -47,17 +47,19 @@ tdl.require('tdl.webgl');
 
 window.onload = main;
 
+var g_maxActivePlayers = 3;
 var g_playerCount = 1;
+var g_totalPlayerCount = 0;
 var g_canvas;
 var g_ctx;
 var g_clock;
 var g_socket;
-var g_players = {};
-var g_queue = [];
-var g_activePlayers = [];
+var g_players = {};  // all players
+var g_activePlayers = [];  // players currently playing
 var g_numPlayers = 0;
 
 var g_entitySys;
+var g_queueMgr;
 
 function logTo(id, str) {
   var c = document.getElementById(id);
@@ -160,6 +162,7 @@ function makeColor(count) {
  * @constructor
  */
 function Player(x, y, direction, clientId) {
+  g_entitySys.addEntity(this);
   ++g_playerCount;
   this.clientId = clientId;
   this.position = [x, y];
@@ -170,6 +173,7 @@ function Player(x, y, direction, clientId) {
     color: this.color
   });
 
+  this.playerName = (++g_totalPlayerCount).toString();
   this.turn = 0;
   this.direction = direction;
   this.fire = false;
@@ -179,16 +183,23 @@ function Player(x, y, direction, clientId) {
   this.maxShots = 3;
   this.shotDuration = 3;
   this.shootTimer = 0;
+  this.timer = 0;
   this.addToQueue();
-  g_entitySys.addEntity(this);
 }
 
+Player.prototype.timesUp = function(elapsedTime) {
+  this.timer -= elapsedTime;
+  return this.timer <= 0;
+};
+
 Player.prototype.addToQueue = function() {
+  g_queueMgr.addToQueue(this);
   this.setState('queued');
 }
 
 Player.prototype.setState = function(state) {
-  this,state = state;
+tdl.log(this.id, state);
+  this.state = state;
   this.process = this["state_" + state];
 }
 
@@ -215,7 +226,18 @@ Player.prototype.removeShot = function(shot) {
   this.shots = shots;
 };
 
+Player.prototype.removeFromActive = function() {
+  for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+    if (g_activePlayers[ii].id == this.id) {
+      g_activePlayers.splice(ii, 1);
+      return;
+    }
+  }
+};
+
 Player.prototype.removeFromGame = function() {
+  g_queueMgr.removeFromQueue(this);
+  this.removeFromActive();
   while (this.shots.length) {
     var shotId = this.shots.shift();
     g_entitySys.deleteEntityById(shotId);
@@ -236,10 +258,56 @@ Player.prototype.update = function(msg) {
   }
 };
 
-Player.prototype.die = function() {
-  this.dieTime = 2;
-  this.setState('die');
+
+Player.prototype.state_queued = function(elapsedTime) {
 };
+
+
+Player.prototype.countdown = function() {
+  this.timer = 3;
+  this.setState('countdown');
+};
+
+Player.prototype.state_countdown = function(elapsedTime) {
+  if (this.timesUp(elapsedTime)) {
+    this.timer = 0.5;
+    this.setState('launch');
+    g_queueMgr.removeFromQueue(this);
+  }
+};
+
+Player.prototype.state_launch = function(elapsedTime) {
+  if (this.timesUp(elapsedTime)) {
+    g_activePlayers.push(this);
+    this.setState('fly');
+  }
+};
+
+
+Player.prototype.state_fly = function(elapsedTime) {
+  this.direction += this.turnVel * this.turn * elapsedTime;
+  var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
+  var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
+  updatePos(this.position, dx, dy);
+  this.shootTimer = Math.max(this.shootTimer - elapsedTime, 0);
+  if (this.fire && this.shootTimer <= 0) {
+    this.shoot();
+    this.shootTimer = this.maxShots / this.shotDuration;
+  }
+};
+
+Player.prototype.die = function() {
+  this.timer = 2;
+  this.setState('die');
+  this.removeFromActive();
+};
+
+Player.prototype.state_die = function(elapsedTime) {
+  if (this.timesUp(elapsedTime)) {
+    this.addToQueue();
+  }
+};
+
 
 Player.prototype.collide = function(x, y, radius) {
   // TODO: need to put colliables on their own list or something
@@ -254,30 +322,10 @@ Player.prototype.collide = function(x, y, radius) {
   return distSq < radius * radius;
 };
 
-Player.prototype.state_fly = function(elapsedTime) {
-  this.direction += this.turnVel * this.turn * elapsedTime;
-  var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
-  var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
-  updatePos(this.position, dx, dy);
-  this.shootTimer = Math.max(this.shootTimer - elapsedTime, 0);
-  if (this.fire && this.shootTimer <= 0) {
-    this.shoot();
-    this.shootTimer = this.maxShots / this.shotDuration;
-  }
-};
-
-Player.prototype.state_die = function(elapsedTime) {
-  this.dieTime -= elapsedTime;
-  if (this.dieTime <= 0) {
-    this.setState('fly');
-  }
-};
-
-Player.prototype.state_queued = function(elapsedTime) {
-    this.setState('fly');
-};
-
 Player.prototype.draw = function(ctx) {
+  if (this.state != 'fly') {
+    return;
+  }
   ctx.save();
   ctx.translate(this.position[0], this.position[1]);
   ctx.rotate(this.direction);
@@ -333,9 +381,9 @@ Shot.prototype.process = function(elapsedTime) {
     updatePos(this.position, dx, dy);
 
     var hit = false;
-    for (var id in g_players) {
-      if (id != this.ownerId) {
-        var player = g_players[id];
+    for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+      var player = g_activePlayers[ii];
+      if (player.id != this.owner.id) {
         if (player.collide(this.position[0], this.position[1], 3)) {
           hit = true;
           player.die();
@@ -396,6 +444,48 @@ function resizeCanvas() {
 }
 
 /**
+ * Manages the Queue of players waiting.
+ */
+function QueueManager() {
+  this.launching_ = [];
+  this.queue_ = [];
+  this.timer_ = 0;
+};
+
+QueueManager.prototype.addToQueue = function(player) {
+  this.queue_.push(player);
+}
+
+QueueManager.prototype.removeFromQueue = function(player) {
+  for (var ii = 0; ii < this.queue_.length; ++ii) {
+    if (this.queue_[ii].id = player.id) {
+      this.queue_.splice(ii, 1);
+      return;
+    }
+  }
+  for (var ii = 0; ii < this.launching_.length; ++ii) {
+    if (this.launching_[ii].id = player.id) {
+      this.launching_.splice(ii, 1);
+      return;
+    }
+  }
+}
+
+QueueManager.prototype.process = function(elapsedTime) {
+  if (this.timer_ > 0) {
+    this.timer_ -= elapsedTime;
+  } else {
+    if (this.queue_.length > 0 &&
+        g_activePlayers.length + this.launching_.length < g_maxActivePlayers) {
+      var player = this.queue_.shift()
+      player.countdown();
+      this.launching_.push(player);
+      this.timer_ = 1;  // don't start another for at least 1 second.
+    }
+  }
+}
+
+/**
  * Processes and Draws all the entities.
  * An entity is currently losely defined as any object that has
  * a process and a draw function.
@@ -445,6 +535,7 @@ function main() {
   sendCmd("server");
 
   g_entitySys = new EntitySystem();
+  g_queueMgr = new QueueManager();
 
   var then = (new Date()).getTime() * 0.001;
   render();
@@ -455,6 +546,7 @@ function main() {
     then = now;
     tdl.webgl.requestAnimationFrame(render, canvas);
 
+    g_queueMgr.process(elapsedTime);
     g_entitySys.processEntities(elapsedTime);
 
     resizeCanvas();
