@@ -1,0 +1,413 @@
+<!doctype html>
+<html>
+<head>
+<title>PowPow</title>
+<style>
+html, body {
+  width: 100%;
+  height: 100%;
+  border: 0px;
+  padding: 0px;
+  margin: 0px;
+  background-color: black;
+  font-family: sans-serif;
+}
+#outer {
+  width: 100%;
+  height: 100%;
+}
+#canvas {
+  width: 100%;
+  height: 100%;
+}
+</style>
+<!-- Note: Socket IO is served from the socket io based server -->
+<script type="text/javascript" src="socket.io/socket.io.js"></script>
+<script type="text/javascript" src="tdl/base.js"></script>
+<script>
+tdl.require('tdl.log');
+tdl.require('tdl.webgl');
+
+window.onload = main;
+
+var g_playerCount = 1;
+var g_canvas;
+var g_ctx;
+var g_clock;
+var g_socket;
+var g_players = {};
+var g_numPlayers = 0;
+
+var g_entitySys;
+
+function logTo(id, str) {
+  var c = document.getElementById(id);
+  var d = document.createElement("div");
+  d.appendChild(document.createTextNode(str));
+  c.appendChild(d);
+}
+
+function log() {
+  var s = ""
+  for (var ii = 0; ii < arguments.length; ++ii) {
+    s += arguments[ii].toString();
+  }
+  logTo("console", s);
+}
+
+function connect(server, port) {
+  var server = window.location.href.match(/\/\/(.*?)\//)[1];
+  var port = 8080;
+  g_socket = new io.Socket(null, {
+      port: port,
+      transports: ['websocket']});
+  g_socket.connect();
+  g_socket.on('message', function(obj) {
+    processMessage(obj);
+  });
+}
+
+function sendCmd(cmd, id, data) {
+  g_socket.send({
+    cmd: cmd,
+    id: id,
+    data: data
+  });
+}
+
+function processMessage(msg) {
+  switch (msg.cmd) {
+  case 'start':
+    startPlayer(msg.id);
+    break;
+  case 'update':
+    updatePlayer(msg.id, msg.data);
+    break;
+  case 'remove':
+    removePlayer(msg.id);
+    break;
+  }
+}
+
+function startPlayer(id) {
+  if (!g_players[id]) {
+    var player = new Player(100, 100, id);
+    g_players[id] = player;
+    ++g_numPlayers;
+  }
+}
+
+function getPlayer(id) {
+  var player = g_players[id];
+  return player;
+}
+
+function removePlayer(id) {
+  if (g_players[id]) {
+    g_players[id].removeFromGame();
+    delete g_players[id];
+    --g_numPlayers;
+  }
+}
+
+function updatePlayer(id, msg) {
+  var player = getPlayer(id);
+  player.update(msg);
+}
+
+function Player(x, y, clientId) {
+  ++g_playerCount;
+  var color = [
+    (g_playerCount * 1.3) % 1,
+    (g_playerCount * 2.7) % 1,
+    (g_playerCount * 3.9) % 1
+  ];
+  var ci = Math.floor(Math.random() * 3);
+  for (var ii = 0; ii < 3; ++ii) {
+    var ndx = (ii + ci) % 3;
+    var mix = (ii == 0) ? 0.2 : 0.6;
+    var max = (ii == 0) ? 1 : 0.6;
+    color[ndx] = Math.floor((color[ndx] * mix + (1 - mix)) * max * 255);
+  }
+
+  this.clientId = clientId;
+  this.position = [x, y];
+  this.hp = 3;
+  this.color = "rgb(" + color[0] + "," + color[1] + "," + color[2] + ")";
+
+  sendCmd("client", clientId, {
+    cmd: 'setColor',
+    color: this.color
+  });
+
+  this.turn = 0;
+  this.direction = Math.PI;
+  this.fire = false;
+  this.vel = 200;
+  this.turnVel = Math.PI * 0.5;
+  this.shots = [];
+  this.maxShots = 3;
+  this.shootTimer = 0;
+  this.state = 'fly';
+  g_entitySys.addEntity(this);
+}
+
+Player.prototype.shoot = function() {
+  if (this.shots.length >= this.maxShots) {
+    var shotId = this.shots.shift();
+    g_entitySys.deleteEntityById(shotId);
+  }
+
+  this.shots.push((new Shot(
+    this.position[0] + -Math.sin(this.direction) * 15,
+    this.position[1] +  Math.cos(this.direction) * 15,
+    this.direction, this)).id);
+};
+
+Player.prototype.removeShot = function(shot) {
+  var shots = [];
+  for (var ii = 0; ii < this.shots.length; ++ii) {
+    var s = this.shots[ii];
+    if (s.id != shot.id) {
+      shots.push(s);
+    }
+  }
+  this.shots = shots;
+};
+
+Player.prototype.removeFromGame = function() {
+  while (this.shots.length) {
+    var shotId = this.shots.shift();
+    g_entitySys.deleteEntityById(shotId);
+  }
+  g_entitySys.deleteEntity(this);
+}
+
+Player.prototype.update = function(msg) {
+  switch (msg.cmd) {
+    case 'turn':
+      this.turn = msg.turn;
+      break;
+    case 'fire':
+      this.fire = msg.fire;
+      if (this.fire) {
+        this.shoot();
+      }
+      break;
+  }
+};
+
+Player.prototype.die = function() {
+  this.dieTime = 2;
+  this.state = 'die';
+};
+
+Player.prototype.collide = function(x, y, radius) {
+  var dx = x - this.position[0];
+  var dy = y - this.position[1];
+  var distSq = dx * dx + dy * dy;
+  var radius = 10 + radius;
+  return distSq < radius * radius;
+};
+
+Player.prototype.process = function(elapsedTime) {
+  switch (this.state) {
+  case 'fly':
+    this.direction += this.turnVel * this.turn * elapsedTime;
+    var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
+    var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
+    updatePos(this.position, dx, dy);
+    break;
+  case 'die':
+    this.dieTime -= elapsedTime;
+    if (this.dieTime <= 0) {
+      this.state = 'fly';
+    }
+    break;
+  }
+};
+
+Player.prototype.draw = function(ctx) {
+  ctx.save();
+  ctx.translate(this.position[0], this.position[1]);
+  ctx.rotate(this.direction);
+  ctx.fillStyle = this.color;
+  ctx.beginPath();
+  ctx.closePath();
+  ctx.moveTo(0, 15);
+  ctx.lineTo(15, -15);
+  ctx.lineTo(0, -10);
+  ctx.lineTo(-15, -15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+};
+
+function Shot(x, y, direction, owner) {
+  this.owner = owner;
+  this.position = [x, y];
+  this.vel = 300;
+  this.duration = 3;
+  this.direction = direction;
+  this.drawCount = 0;
+  g_entitySys.addEntity(this);
+}
+
+Shot.prototype.remove = function() {
+  this.owner.removeShot(this);
+  g_entitySys.deleteEntity(this);
+};
+
+Shot.colors = [
+  "#800000",
+  "#ff0000",
+  "#ff8000",
+  "#ffff00",
+  "#ffffff",
+  "#ffff00",
+  "#ff0000",
+  "#ff8000"
+];
+
+Shot.prototype.process = function(elapsedTime) {
+  this.duration -= elapsedTime;
+  if (this.duration <= 0) {
+    this.remove();
+  } else {
+    var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
+    var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
+    updatePos(this.position, dx, dy);
+
+    for (var id in g_players) {
+      if (id != this.ownerId) {
+        var player = g_players[id];
+        if (player.collide(this.position[0], this.position[1], 3)) {
+          this.remove();
+          player.die();
+        }
+      }
+    }
+  }
+};
+
+Shot.prototype.draw = function(ctx) {
+  ++this.drawCount;
+  ctx.save();
+  ctx.translate(this.position[0], this.position[1]);
+  ctx.fillStyle = Shot.colors[this.drawCount % Shot.colors.length];
+  ctx.beginPath();
+  ctx.closePath();
+  ctx.moveTo(0, 5);
+  ctx.lineTo(5, 0);
+  ctx.lineTo(0, -5);
+  ctx.lineTo(-5, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+};
+
+
+function updatePos(pos, dx, dy) {
+  var x = pos[0] + dx;
+  if (x < 0) {
+    x = g_canvas.width - 1;
+  } else if (x >= g_canvas.width) {
+    x = 0;
+  }
+
+  var y = pos[1] + dy;
+  if (y < 0) {
+    y = g_canvas.height - 1;
+  } else if (y >= g_canvas.height) {
+    y = 0;
+  }
+
+  pos[0] = x;
+  pos[1] = y;
+}
+
+function resizeCanvas() {
+  if (g_canvas.width != g_canvas.clientWidth) {
+    g_canvas.width = g_canvas.clientWidth;
+    tdl.log("new width:", g_canvas.width);
+  }
+  if (g_canvas.height != g_canvas.clientHeight) {
+    g_canvas.height = g_canvas.clientHeight;
+    tdl.log("new height:", g_canvas.height);
+  }
+}
+
+/***/
+
+function EntitySystem() {
+  this.entities_ = {};
+  this.numEntities_ = 0;
+  this.nextId_ = 1;
+  this.removeEntities_ = [];
+}
+
+EntitySystem.prototype.addEntity = function(entity) {
+  var id = this.nextId_++;
+  entity.id = id;
+  this.entities_[id] = entity;
+  ++this.numEntities_;
+};
+
+EntitySystem.prototype.deleteEntity = function(entity) {
+  this.deleteEntityById(entity.id);
+};
+
+EntitySystem.prototype.deleteEntityById = function(id) {
+  this.removeEntities_.push(id);
+};
+
+EntitySystem.prototype.processEntities = function(elapsedTime) {
+  for (var id in this.entities_) {
+    this.entities_[id].process(elapsedTime);
+  }
+  while (this.removeEntities_.length) {
+    delete this.entities_[this.removeEntities_.pop()];
+    --this.numEntities_;
+  }
+};
+
+EntitySystem.prototype.drawEntities = function(ctx) {
+  for (var id in this.entities_) {
+    this.entities_[id].draw(ctx);
+  }
+};
+
+function main() {
+  g_canvas = document.getElementById("canvas");
+  g_ctx = g_canvas.getContext("2d");
+  connect();
+  sendCmd("server");
+
+  g_entitySys = new EntitySystem();
+
+  var then = (new Date()).getTime() * 0.001;
+  render();
+
+  function render() {
+    var now = (new Date()).getTime() * 0.001;
+    var elapsedTime = now - then;
+    then = now;
+    tdl.webgl.requestAnimationFrame(render, canvas);
+
+    g_entitySys.processEntities(elapsedTime);
+
+    resizeCanvas();
+    g_ctx.clearRect(0, 0, g_canvas.width, g_canvas.height);
+    g_entitySys.drawEntities(g_ctx);
+  }
+
+}
+</script>
+</head>
+<body>
+<div id="outer">
+<canvas id="canvas"></canvas>
+</div>
+</body>
+</html>
+
