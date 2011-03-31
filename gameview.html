@@ -272,7 +272,6 @@ Player.prototype.state_countdown = function(elapsedTime) {
   if (this.timesUp(elapsedTime)) {
     this.timer = 0.5;
     this.setState('launch');
-    g_queueMgr.removeFromQueue(this);
   }
 };
 
@@ -280,6 +279,7 @@ Player.prototype.state_launch = function(elapsedTime) {
   if (this.timesUp(elapsedTime)) {
     g_activePlayers.push(this);
     this.setState('fly');
+    g_queueMgr.removeFromQueue(this);
   }
 };
 
