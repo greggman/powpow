@@ -139,6 +139,8 @@ function removePlayer(id) {
 
 function updatePlayer(id, msg) {
   var player = getPlayer(id);
+  if (!player)
+    return;
   player.update(msg);
 }
 
