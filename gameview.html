@@ -63,7 +63,7 @@ var g_clock;
 var g_socket;
 var g_players = {};  // all players
 var g_activePlayers = [];  // players currently playing
-var g_shots = {};
+var g_shotsById = {};
 var g_numPlayers = 0;
 
 var g_debug = true;
@@ -463,7 +463,7 @@ function Player(x, y, direction, clientId) {
   this.fire = false;
   this.vel = 200;
   this.turnVel = Math.PI * 0.5;
-  this.shots = [];
+  this.shotsById = [];
   this.maxShots = 3;
   this.shotDuration = 3;
   this.shootTimer = 0;
@@ -491,8 +491,8 @@ tdl.log(this.id, state);
 }
 
 Player.prototype.shoot = function() {
-  if (this.shots.length >= this.maxShots) {
-    var shotId = this.shots.shift();
+  if (this.shotsById.length >= this.maxShots) {
+    var shotId = this.shotsById.shift();
     g_entitySys.deleteEntityById(shotId);
   }
 
@@ -500,21 +500,21 @@ Player.prototype.shoot = function() {
     this.position[0] + -Math.sin(this.direction) * 15,
     this.position[1] +  Math.cos(this.direction) * 15,
     this.direction, this);
-	g_shots[shot.id] = shot;
-  this.shots.push((shot).id);
+  g_shotsById[shot.id] = shot;
+  this.shotsById.push(shot.id);
 };
 
 Player.prototype.removeShot = function(shot) {
-  var shots = [];
-  for (var ii = 0; ii < this.shots.length; ++ii) {
-    var s = this.shots[ii];
-    if (s.id != shot.id) {
-      shots.push(s);
+  var shotIds = [];
+  for (var ii = 0; ii < this.shotsById.length; ++ii) {
+    var shotId = this.shotsById[ii];
+    if (shotId != shot.id) {
+      shotsIds.push(shot.id);
     } else {
-			delete g_shots[s.id];
+      delete g_shotsById[shotId];
     }
   }
-  this.shots = shots;
+  this.shotsById = shotIds;
 };
 
 Player.prototype.removeFromActive = function() {
@@ -529,9 +529,9 @@ Player.prototype.removeFromActive = function() {
 Player.prototype.removeFromGame = function() {
   g_queueMgr.removeFromQueue(this);
   this.removeFromActive();
-  while (this.shots.length) {
-    var shotId = this.shots.shift();
-		delete g_shots[shotId];
+  while (this.shotsById.length) {
+    var shotId = this.shotsById.shift();
+    delete g_shotsById[shotId];
     g_entitySys.deleteEntityById(shotId);
   }
   g_entitySys.deleteEntity(this);
@@ -891,11 +891,11 @@ function main() {
     renderer.resize();
     renderer.begin();
 
-		for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+    for (var ii = 0; ii < g_activePlayers.length; ++ii) {
       g_activePlayers[ii].draw(renderer);
     }
-		for (var shotId in g_shots) {
-			g_shots[shotId].draw(renderer);
+    for (var shotId in g_shotsById) {
+      g_shotsById[shotId].draw(renderer);
     }
 
     renderer.end();
