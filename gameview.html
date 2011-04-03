@@ -165,6 +165,8 @@ function startPlayer(id) {
   var player = new Player(x, y, direction, id);
   g_players[id] = player;
   ++g_numPlayers;
+
+  return player;
 }
 
 function getPlayer(id) {
@@ -901,7 +903,10 @@ function main() {
   g_queueMgr = new QueueManager();
   g_scoreMgr = new ScoreManager();
 
-  //startPlayer(123);
+  // Add a 2 players if there is no communication
+  if (!window.io) {
+    startLocalPlayers();
+  }
 
   var then = (new Date()).getTime() * 0.001;
   render();
@@ -931,6 +936,102 @@ function main() {
     // turn off logging after 1 frame.
     g_logGLCalls = false;
   }
+}
+
+function startLocalPlayers() {
+  var player1 = startPlayer(1);
+  var player2 = startPlayer(2);
+  var g_left = false;
+  var g_right = false;
+  var g_fire = false;
+  var g_keyState = { };
+  var g_oldKeyState = { };
+
+  // simulate clientside sendCmd
+  function sendCmd(cmd, data) {
+    player1.update(data);
+  }
+
+  function handleKeyDown(keyCode, state) {
+    switch(event.keyCode) {
+    case 37: // left
+      if (!g_left) {
+        g_left = true;
+        sendCmd("update", {
+            cmd: 'turn',
+            turn: -1
+        });
+      }
+      break;
+    case 39: // right
+      if (!g_right) {
+        g_right = true;
+        sendCmd("update", {
+            cmd: 'turn',
+            turn: 1
+        });
+      }
+      break;
+    case 90: // z
+      if (!g_fire) {
+        g_fire = true;
+        sendCmd("update", {
+            cmd: 'fire',
+            fire: 1
+        });
+      }
+      break;
+    }
+  }
+
+  function handleKeyUp(keyCode, state) {
+    switch(event.keyCode) {
+    case 37: // left
+      g_left = false;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: (g_right) ? 1 : 0
+      });
+      break;
+    case 39: // right
+      g_right = false;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: (g_left) ? -1 : 0
+      });
+      break;
+    case 90: // z
+      g_fire = false;
+      sendCmd("update", {
+          cmd: 'fire',
+          fire: 0
+      });
+      break;
+    }
+  }
+
+  function updateKey(keyCode, state) {
+    g_keyState[keyCode] = state;
+    if (g_oldKeyState != g_keyState) {
+      g_oldKeyState = state;
+      if (state) {
+        handleKeyDown(keyCode);
+      } else {
+        handleKeyUp(keyCode);
+      }
+    }
+  }
+
+  function keyUp(event) {
+    updateKey(event.keyCode, false);
+  }
+
+  function keyDown(event) {
+    updateKey(event.keyCode, true);
+  }
+
+  window.addEventListener("keyup", keyUp, false);
+  window.addEventListener("keydown", keyDown, false);
 }
 </script>
 </head>
