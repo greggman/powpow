@@ -44,6 +44,7 @@ html, body {
 <script>
 tdl.require('tdl.buffers');
 tdl.require('tdl.fast');
+tdl.require('tdl.framebuffers');
 tdl.require('tdl.log');
 tdl.require('tdl.math');
 tdl.require('tdl.models');
@@ -65,9 +66,11 @@ var g_players = {};  // all players
 var g_activePlayers = [];  // players currently playing
 var g_shotsById = {};
 var g_numPlayers = 0;
+var g_debug = false;
+var g_logGLCalls = false;
 
-var g_debug = true;
-var g_logGLCalls = true;
+// g_debug = true;
+// g_logGLCalls = true;
 
 var g_entitySys;
 var g_queueMgr;
@@ -281,6 +284,8 @@ function WebGLRenderer(canvas) {
   }
 
   this.gl = gl;
+  this.screenDimensions = [2 / this.canvas.width, 2 / this.canvas.height];
+  this.resize();
 
   function makeShip() {
     var arrays = {
@@ -320,9 +325,43 @@ function WebGLRenderer(canvas) {
     return new tdl.models.Model(program, arrays, textures);
   }
 
+  function makePersist(newTexture, oldTexture) {
+    var textures = {
+        newRender: newTexture,
+        oldRender: oldTexture
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        'persistVertexShader',
+        'persistFragmentShader');
+    var arrays = tdl.primitives.createPlane(2, 2, 1, 1);
+    tdl.primitives.reorient(arrays,
+        [1, 0, 0, 0,
+         0, 0,-1, 0,
+         0, 1, 0, 0,
+         0, 0, 0, 1]);
+    delete arrays.normal;
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeLastPlane(texture) {
+    var textures = {
+        texture: texture
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        'mainVertexShader',
+        'mainFragmentShader');
+    var arrays = tdl.primitives.createPlane(2, 2, 1, 1);
+    tdl.primitives.reorient(arrays,
+        [1, 0, 0, 0,
+         0, 0,-1, 0,
+         0, 1, 0, 0,
+         0, 0, 0, 1]);
+    delete arrays.normal;
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
   this.ship = makeShip();
-  this.shop = makeShot();
-  this.lastModel = null;
+  this.shot = makeShot();
 
   this.shotColors = [
     new Float32Array([0.5, 0.0, 0.0, 1]),
@@ -335,14 +374,25 @@ function WebGLRenderer(canvas) {
     new Float32Array([1.0, 0.5, 0.0, 1])
   ];
 
-  this.matrix = [1,0,0,0,1,0,0,0,1]; //new Float32Array([1,0,0,0,1,0,0,0,1]);
-  this.screenDimensions = [2 / this.canvas.width, 2 / this.canvas.height];
+  this.matrix = new Float32Array([1,0,0,0,1,0,0,0,1]);
   this.constUniforms = {
     screenDimensions: this.screenDimensions
   };
   this.uniforms = {
     matrix: this.matrix
   };
+
+  this.baseFBO = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height, true);
+  this.persistentFBO1 = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height);
+  this.persistentFBO2 = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height);
+
+  this.persistPlane = makePersist(
+      this.baseFBO.texture, this.persistentFBO1.texture);
+
+  this.lastPlane = makeLastPlane(this.persistentFBO2.texture);
 }
 
 WebGLRenderer.prototype.resize = function() {
@@ -359,8 +409,10 @@ WebGLRenderer.prototype.resize = function() {
 };
 
 WebGLRenderer.prototype.begin = function() {
+  this.lastModel = null;
   this.screenDimensions[0] = 2 / this.canvas.width;
-  this.screenDimensions[0] = 2 / this.canvas.height;
+  this.screenDimensions[1] = 2 / this.canvas.height;
+  this.baseFBO.bind();
   gl.colorMask(true, true, true, true);
   gl.depthMask(true);
   gl.clearColor(0,0,0,0);
@@ -369,6 +421,20 @@ WebGLRenderer.prototype.begin = function() {
 };
 
 WebGLRenderer.prototype.end = function() {
+  this.baseFBO.unbind();
+
+  // blend base with persist1 into persist2
+  this.persistentFBO2.bind();
+  this.persistPlane.drawPrep();
+  this.persistPlane.draw({oldRender: this.persistentFBO1.texture});
+  this.persistentFBO2.unbind();
+  // draw on the backbuffer.
+  this.lastPlane.drawPrep();
+  this.lastPlane.draw({texture: this.persistentFBO2.texture});
+  // swap persist FBOs.
+  var temp = this.persistentFBO1;
+  this.persistentFBO1 = this.persistentFBO2;
+  this.persistentFBO2 = temp;
 };
 
 WebGLRenderer.prototype.drawShip = function(position, direction, color) {
@@ -397,17 +463,17 @@ WebGLRenderer.prototype.drawShot = function(position, count) {
     this.lastModel = this.shot;
   }
 
-  var c = Math.cos(this.direction);
-  var s = Math.sin(this.direction);
+  var c = Math.cos(0);
+  var s = Math.sin(0);
 
   var m = this.matrix;
   m[0] = c;
   m[1] = s;
   m[3] = -s;
   m[4] = c;
-  m[6] = this.position[0];
-  m[7] = this.position[1];
-  this.uniforms.colors = this.shotColors[count % this.shotColors.length];
+  m[6] = position[0];
+  m[7] = position[1];
+  this.uniforms.color = this.shotColors[count % this.shotColors.length];
 
   this.shot.draw(this.uniforms);
 };
@@ -481,7 +547,7 @@ Player.prototype.removeShot = function(shot) {
   for (var ii = 0; ii < this.shotsById.length; ++ii) {
     var shotId = this.shotsById[ii];
     if (shotId != shot.id) {
-      shotsIds.push(shot.id);
+      shotIds.push(shot.id);
     } else {
       delete g_shotsById[shotId];
     }
@@ -835,8 +901,8 @@ EntitySystem.prototype.processEntities = function(elapsedTime) {
 
 function main() {
   g_canvas = document.getElementById("canvas");
-  var renderer = new CanvasRenderer(g_canvas);
-  //var renderer = new WebGLRenderer(g_canvas);
+  //var renderer = new CanvasRenderer(g_canvas);
+  var renderer = new WebGLRenderer(g_canvas);
 
   connect();
   sendCmd("server");
@@ -845,7 +911,7 @@ function main() {
   g_queueMgr = new QueueManager();
   g_scoreMgr = new ScoreManager();
 
-  //startPlayer(123);
+  startPlayer(123);
 
   var then = (new Date()).getTime() * 0.001;
   render();
@@ -911,6 +977,48 @@ void main() {
   gl_FragColor = color;
 }
 </script>
+<script id="persistVertexShader" type="whatever">
+attribute vec2 position;
+attribute vec2 texCoord;
+varying vec2 v_texCoord;
+void main() {
+  gl_Position = vec4(position, 0, 1);
+  v_texCoord = texCoord;
+}
+</script>
+<script id="persistFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform sampler2D newRender;
+uniform sampler2D oldRender;
+varying vec2 v_texCoord;
+void main() {
+  vec4 newColor = texture2D(newRender, v_texCoord);
+  vec4 oldColor = texture2D(oldRender, v_texCoord);
+
+  gl_FragColor = mix(oldColor * 0.8, newColor, length(newColor.xyz));
+}
+</script>
+<script id="mainVertexShader" type="whatever">
+attribute vec2 position;
+attribute vec2 texCoord;
+varying vec2 v_texCoord;
+void main() {
+  gl_Position = vec4(position, 0, 1);
+  v_texCoord = texCoord;
+}
+</script>
+<script id="mainFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform sampler2D texture;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(texture, v_texCoord);
+  gl_FragColor = color;
+}
 </script>
 </body>
 </html>
