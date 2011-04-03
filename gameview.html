@@ -501,7 +501,7 @@ function Player(x, y, direction, clientId) {
   this.fire = false;
   this.vel = 200;
   this.turnVel = Math.PI * 0.5;
-  this.shotsById = [];
+  this.shots = [];
   this.maxShots = 3;
   this.shotDuration = 3;
   this.shootTimer = 0;
@@ -529,9 +529,8 @@ tdl.log(this.id, state);
 }
 
 Player.prototype.shoot = function() {
-  if (this.shotsById.length >= this.maxShots) {
-    var shotId = this.shotsById.shift();
-    g_entitySys.deleteEntityById(shotId);
+  if (this.shots.length >= this.maxShots) {
+    this.removeShot(this.shots[0]);
   }
 
   var shot = new Shot(
@@ -539,20 +538,14 @@ Player.prototype.shoot = function() {
     this.position[1] +  Math.cos(this.direction) * 15,
     this.direction, this);
   g_shotsById[shot.id] = shot;
-  this.shotsById.push(shot.id);
+  this.shots.push(shot);
 };
 
 Player.prototype.removeShot = function(shot) {
-  var shotIds = [];
-  for (var ii = 0; ii < this.shotsById.length; ++ii) {
-    var shotId = this.shotsById[ii];
-    if (shotId != shot.id) {
-      shotIds.push(shot.id);
-    } else {
-      delete g_shotsById[shotId];
-    }
-  }
-  this.shotsById = shotIds;
+  var ndx = this.shots.indexOf(shot);
+  this.shots.splice(ndx, 1);
+  delete g_shotsById[shot.id];
+  g_entitySys.deleteEntityById(shot.id);
 };
 
 Player.prototype.removeFromActive = function() {
@@ -567,10 +560,8 @@ Player.prototype.removeFromActive = function() {
 Player.prototype.removeFromGame = function() {
   g_queueMgr.removeFromQueue(this);
   this.removeFromActive();
-  while (this.shotsById.length) {
-    var shotId = this.shotsById.shift();
-    delete g_shotsById[shotId];
-    g_entitySys.deleteEntityById(shotId);
+  while (this.shots.length) {
+    this.removeShot(this.shots[0]);
   }
   g_entitySys.deleteEntity(this);
 }
@@ -679,7 +670,6 @@ function Shot(x, y, direction, owner) {
 
 Shot.prototype.remove = function() {
   this.owner.removeShot(this);
-  g_entitySys.deleteEntity(this);
 };
 
 Shot.prototype.process = function(elapsedTime) {
@@ -911,7 +901,7 @@ function main() {
   g_queueMgr = new QueueManager();
   g_scoreMgr = new ScoreManager();
 
-  startPlayer(123);
+  //startPlayer(123);
 
   var then = (new Date()).getTime() * 0.001;
   render();
