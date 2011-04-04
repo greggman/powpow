@@ -78,8 +78,12 @@ var g_entitySys;
 var g_queueMgr;
 var g_scoreMgr;
 
+function $(id) {
+  return document.getElementById(id);
+}
+
 function logTo(id, str) {
-  var c = document.getElementById(id);
+  var c = $(id);
   var d = document.createElement("div");
   d.appendChild(document.createTextNode(str));
   c.appendChild(d);
@@ -595,6 +599,7 @@ function Player(x, y, direction, clientId) {
 
   this.playerName = (++g_totalPlayerCount).toString();
   this.turn = 0;
+  this.targetDir = -1;
   this.direction = direction;
   this.fire = false;
   this.vel = 200;
@@ -671,6 +676,11 @@ Player.prototype.update = function(msg) {
   switch (msg.cmd) {
     case 'turn':
       this.turn = msg.turn;
+      this.targetDir = -1;
+      break;
+    case 'target':
+      this.targetDir = msg.target;
+      this.turn = 0;
       break;
     case 'fire':
       this.fire = msg.fire;
@@ -704,7 +714,24 @@ Player.prototype.state_launch = function(elapsedTime) {
 };
 
 Player.prototype.state_fly = function(elapsedTime) {
+  // turn player based on this.turn (-1, 0, 1)
   this.direction += this.turnVel * this.turn * elapsedTime;
+  // turn player based on target
+  if (this.targetDir >= 0) {
+    var targetDir = this.targetDir;
+    var delta = targetDir - this.direction;
+    if (Math.abs(delta) > Math.PI) {
+      if (delta > 0) {
+        targetDir -= Math.PI * 2;
+      } else {
+        targetDir += Math.PI * 2;
+      }
+    }
+    delta = targetDir - this.direction;
+    var turn = delta > 0 ? 1 : -1;
+    var turnVel = Math.min(Math.abs(delta), this.turnVel);
+    this.direction = turnVel * turn * elapsedTime;
+  }
   var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
   var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
   updatePos(this.position, dx, dy);
@@ -833,7 +860,7 @@ function QueueManager() {
   this.launching_ = [];
   this.queue_ = [];
   this.timer_ = 0;
-  this.element_ = document.getElementById("queue");
+  this.element_ = $("queue");
   this.elements_ = [];
 };
 
@@ -911,7 +938,7 @@ QueueManager.prototype.process = function(elapsedTime) {
  */
 
 function ScoreManager() {
-  this.element_ = document.getElementById("highscore");
+  this.element_ = $("highscore");
   this.maxScores_ = 10;
   this.orderedPlayers_ = [];
   this.elements_ = [];
@@ -996,7 +1023,7 @@ EntitySystem.prototype.processEntities = function(elapsedTime) {
 };
 
 function main() {
-  g_canvas = document.getElementById("canvas");
+  g_canvas = $("canvas");
   //g_renderer = new CanvasRenderer(g_canvas);
   g_renderer = new WebGLRenderer(g_canvas);
 

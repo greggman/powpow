@@ -85,8 +85,12 @@ var g_fire = false;
 var g_keyState = {};
 var g_oldKeyState = {};
 
+function $(id) {
+  return document.getElementById(id);
+}
+
 function logTo(id, str) {
-  var c = document.getElementById(id);
+  var c = $(id);
   var d = document.createElement("div");
   d.appendChild(document.createTextNode(str));
   c.appendChild(d);
@@ -128,7 +132,7 @@ function sendCmd(cmd, data) {
 function processMessage(msg) {
   switch (msg.cmd) {
   case 'setColor':
-    var e = document.getElementById("surface");
+    var e = $("surface");
     e.style.backgroundColor = msg.color;
     break;
   case 'win':
@@ -145,7 +149,7 @@ function debugTouch(label, event) {
     var touch = allTouches[ii];
     logTo("status", "  " + ii + ": " + touch.pageX + ", " + touch.pageY);
   }
-  var s = document.getElementById("status");
+  var s = $("status");
   s.scrollTop = s.scrollHeight;
 }
 
@@ -241,14 +245,14 @@ function updateKey(keyCode, state) {
 
 function keyUp(event) {
   //logTo("status", "keyUp: " + event.keyCode);
-  var s = document.getElementById("status");
+  var s = $("status");
   s.scrollTop = s.scrollHeight;
   updateKey(event.keyCode, false);
 }
 
 function keyDown(event) {
   //logTo("status", "keyDown: " + event.keyCode);
-  var s = document.getElementById("status");
+  var s = $("status");
   s.scrollTop = s.scrollHeight;
   updateKey(event.keyCode, true);
 }
@@ -258,15 +262,15 @@ function main() {
 
   var haveTouch = 'ontouchstart' in document
 
-  var surface = document.getElementById("top");
+  var surface = $("top");
   if (haveTouch) {
     surface.addEventListener("touchstart", touchStart, false);
     surface.addEventListener("touchmove", touchMove, false);
     surface.addEventListener("touchend", touchEnd, false);
     surface.addEventListener("touchcancel", touchCancel, false);
   } else {
-    var keyControls = document.getElementById("keyControls");
-    var touchControls = document.getElementById("touchControls");
+    var keyControls = $("keyControls");
+    var touchControls = $("touchControls");
     log(touchControls.style.display);
     keyControls.style.display = "block";
     touchControls.style.display = "none";
