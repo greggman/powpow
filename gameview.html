@@ -614,8 +614,8 @@ function Player(x, y, direction, clientId) {
     this.addToQueue();
   } else {
     this.setState('fly');
+    g_activePlayers.push(this);
   }
-  g_activePlayers.push(this);
 }
 
 Player.prototype.timesUp = function(elapsedTime) {
@@ -716,6 +716,7 @@ Player.prototype.state_launch = function(elapsedTime) {
 Player.prototype.state_fly = function(elapsedTime) {
   // turn player based on this.turn (-1, 0, 1)
   this.direction += this.turnVel * this.turn * elapsedTime;
+  this.direction = this.direction % (Math.PI * 2);
   // turn player based on target
   if (this.targetDir >= 0) {
     var targetDir = this.targetDir;
@@ -730,7 +731,8 @@ Player.prototype.state_fly = function(elapsedTime) {
     delta = targetDir - this.direction;
     var turn = delta > 0 ? 1 : -1;
     var turnVel = Math.min(Math.abs(delta), this.turnVel);
-    this.direction = turnVel * turn * elapsedTime;
+    this.direction += turnVel * turn * elapsedTime;
+    this.direction = this.direction % (Math.PI * 2);
   }
   var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
   var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
