@@ -42,7 +42,16 @@ html, body {
 <script type="text/javascript" src="socket.io/socket.io.js"></script>
 <script type="text/javascript" src="tdl/base.js"></script>
 <script>
+tdl.require('tdl.buffers');
+tdl.require('tdl.fast');
+tdl.require('tdl.framebuffers');
 tdl.require('tdl.log');
+tdl.require('tdl.math');
+tdl.require('tdl.models');
+tdl.require('tdl.particles');
+tdl.require('tdl.primitives');
+tdl.require('tdl.programs');
+tdl.require('tdl.textures');
 tdl.require('tdl.webgl');
 
 window.onload = main;
@@ -51,12 +60,19 @@ var g_maxActivePlayers = 3;
 var g_playerCount = 1;
 var g_totalPlayerCount = 0;
 var g_canvas;
-var g_ctx;
+var gl;
 var g_clock;
 var g_socket;
 var g_players = {};  // all players
 var g_activePlayers = [];  // players currently playing
+var g_shotsById = {};
 var g_numPlayers = 0;
+var g_debug = false;
+var g_logGLCalls = false;
+var g_renderer;
+
+// g_debug = true;
+// g_logGLCalls = true;
 
 var g_entitySys;
 var g_queueMgr;
@@ -77,7 +93,36 @@ function log() {
   logTo("console", s);
 }
 
+function ValidateNoneOfTheArgsAreUndefined(functionName, args) {
+  for (var ii = 0; ii < args.length; ++ii) {
+    if (args[ii] === undefined) {
+      tdl.error("undefined passed to gl." + functionName + "(" +
+                tdl.webgl.glFunctionArgsToString(functionName, args) + ")");
+    }
+  }
+}
+
+function Log(msg) {
+  if (g_logGLCalls) {
+    tdl.log(msg);
+  }
+}
+
+function LogGLCall(functionName, args) {
+  if (g_logGLCalls) {
+    ValidateNoneOfTheArgsAreUndefined(functionName, args)
+    tdl.log("gl." + functionName + "(" +
+                tdl.webgl.glFunctionArgsToString(functionName, args) + ")");
+  }
+}
+
 function connect(server, port) {
+  if (!window.io) {
+    g_socket = {
+      send: function() { }
+    };
+    return;
+  }
   var server = window.location.href.match(/\/\/(.*?)\//)[1];
   var port = 8080;
   g_socket = new io.Socket(null, {
@@ -122,6 +167,8 @@ function startPlayer(id) {
   var player = new Player(x, y, direction, id);
   g_players[id] = player;
   ++g_numPlayers;
+
+  return player;
 }
 
 function getPlayer(id) {
@@ -148,17 +195,387 @@ function makeColor(count) {
   var color = [
     (count * 0.31) % 1,
     (count * 5.73) % 1,
-    (count * 7.89) % 1
+    (count * 7.89) % 1,
+    1,
   ];
+  var canvasColor = [];
   var ci = count % 3;
   for (var ii = 0; ii < 3; ++ii) {
     var ndx = (ii + ci) % 3;
     var mix = (ii == 0) ? 0.2 : 0.6;
     var max = (ii == 0) ? 1 : 0.6;
-    color[ndx] = Math.floor((color[ndx] * mix + (1 - mix) * max) * 255);
+    color[ndx] = color[ndx] * mix + (1 - mix) * max;
+    canvasColor[ndx] = Math.floor(color[ndx] * 255);
   }
-  return "rgb(" + color.join(",") + ")";
+  return {glColor: color, canvasColor: "rgb(" + canvasColor.join(",") + ")"};
 }
+
+function CanvasRenderer(canvas) {
+  this.canvas = canvas;
+  this.ctx = canvas.getContext("2d");
+
+  this.shotColors = [
+    "#800000",
+    "#ff0000",
+    "#ff8000",
+    "#ffff00",
+    "#ffffff",
+    "#ffff00",
+    "#ff0000",
+    "#ff8000"
+  ];
+}
+
+CanvasRenderer.prototype.resize = function() {
+  if (this.canvas.width != this.canvas.clientWidth ||
+      this.canvas.height != this.canvas.clientHeight) {
+    this.canvas.width = this.canvas.clientWidth;
+    this.canvas.height = this.canvas.clientHeight;
+    tdl.log("new width:", this.canvas.width);
+    tdl.log("new height:", this.canvas.height);
+  }
+};
+
+CanvasRenderer.prototype.begin = function() {
+  this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+};
+
+CanvasRenderer.prototype.end = function() {
+};
+
+CanvasRenderer.prototype.drawShip = function(position, direction, color) {
+  var ctx = this.ctx;
+  ctx.save();
+  ctx.translate(position[0], position[1]);
+  ctx.rotate(direction);
+  ctx.fillStyle = color.canvasColor;
+  ctx.beginPath();
+  ctx.closePath();
+  ctx.moveTo(0, 15);
+  ctx.lineTo(15, -15);
+  ctx.lineTo(0, -10);
+  ctx.lineTo(-15, -15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+};
+
+CanvasRenderer.prototype.drawShot = function(position, count) {
+  var ctx = this.ctx;
+  ctx.save();
+  ctx.translate(position[0], position[1]);
+  ctx.fillStyle = this.shotColors[count % this.shotColors.length];
+  ctx.beginPath();
+  ctx.closePath();
+  ctx.moveTo(0, 5);
+  ctx.lineTo(5, 0);
+  ctx.lineTo(0, -5);
+  ctx.lineTo(-5, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+};
+
+CanvasRenderer.prototype.startExplosion = function(position, direction, color) {
+};
+
+function WebGLRenderer(canvas) {
+  var math = tdl.math;
+  var fast = tdl.fast;
+  this.canvas = canvas;
+
+  gl = tdl.webgl.setupWebGL(canvas);
+  if (!gl) {
+    return false;
+  }
+  if (g_debug) {
+    gl = tdl.webgl.makeDebugContext(gl, undefined, LogGLCall);
+  }
+
+  this.gl = gl;
+  this.screenDimensions = [2 / this.canvas.width, 2 / this.canvas.height];
+  this.resize();
+
+  function makeShip() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  15,
+         15, -15,
+          0, -10,
+        -15, -15
+      ]),
+      indices: new tdl.primitives.AttribBuffer(3, [
+        0, 1, 2, 0, 2, 3
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeShot() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  5,
+          5,  0,
+          0, -5,
+         -5, -0
+      ]),
+      indices: new tdl.primitives.AttribBuffer(3, [
+        0, 1, 2, 0, 2, 3
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makePersist(newTexture, oldTexture) {
+    var textures = {
+        newRender: newTexture,
+        oldRender: oldTexture
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        'persistVertexShader',
+        'persistFragmentShader');
+    var arrays = tdl.primitives.createPlane(2, 2, 1, 1);
+    tdl.primitives.reorient(arrays,
+        [1, 0, 0, 0,
+         0, 0,-1, 0,
+         0, 1, 0, 0,
+         0, 0, 0, 1]);
+    delete arrays.normal;
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeLastPlane(texture) {
+    var textures = {
+        texture: texture
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        'mainVertexShader',
+        'mainFragmentShader');
+    var arrays = tdl.primitives.createPlane(2, 2, 1, 1);
+    tdl.primitives.reorient(arrays,
+        [1, 0, 0, 0,
+         0, 0,-1, 0,
+         0, 1, 0, 0,
+         0, 0, 0, 1]);
+    delete arrays.normal;
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function setupFlame(particleSystem) {
+    var emitter = particleSystem.createParticleEmitter();
+    emitter.setTranslation(0, 0, 0);
+    emitter.setState(tdl.particles.ParticleStateIds.ADD);
+    emitter.setColorRamp(
+        [1, 1, 0, 1,
+         1, 0, 0, 1,
+         0, 0, 0, 1,
+         0, 0, 0, 0.5,
+         0, 0, 0, 0]);
+    emitter.setParameters({
+        numParticles: 20,
+        lifeTime: 2,
+        timeRange: 2,
+        startSize: 0.5,
+        endSize: 0.9,
+        velocity:[0, 0.60, 0], velocityRange: [0.15, 0.15, 0.15],
+        worldAcceleration: [0, -0.20, 0],
+        spinSpeedRange: 4});
+  }
+
+  function setupPoofs(particleSystem, maxPoofs) {
+    var poofs = [];
+    var emitter = particleSystem.createParticleEmitter();
+    emitter.setState(tdl.particles.ParticleStateIds.ADD);
+    emitter.setColorRamp(
+        [1, 1, 1, 1,
+         1, 1, 0, 1,
+         1, 0, 0, 1,
+         1, 1, 1, 0.5,
+         1, 1, 1, 0]);
+    emitter.setParameters({
+        numParticles: 60,
+        lifeTime: 1.5,
+        startTime: 0,
+        startSize: 20.0,
+        endSize: 40.0,
+        spinSpeedRange: 10},
+        function(index, parameters) {
+            var speed = Math.random() * 40 + 40;
+            var angle = Math.random() * 2 * Math.PI;
+            parameters.velocity = math.matrix4.transformPoint(
+                math.matrix4.rotationZ(angle), [speed, 0, 0]);
+            parameters.acceleration = math.mulVectorVector(
+                parameters.velocity, [speed * -0.001, speed * -0.001, 0]);
+        });
+    // make 3 poofs one shots
+    for (var ii = 0; ii < maxPoofs; ++ii) {
+       poofs[ii] = emitter.createOneShot();
+    }
+    return poofs;
+  }
+
+  this.ship = makeShip();
+  this.shot = makeShot();
+
+  this.shotColors = [
+    new Float32Array([0.5, 0.0, 0.0, 1]),
+    new Float32Array([1.0, 0.0, 0.0, 1]),
+    new Float32Array([1.0, 0.5, 0.0, 1]),
+    new Float32Array([1.0, 1.0, 0.0, 1]),
+    new Float32Array([1.0, 1.0, 1.0, 1]),
+    new Float32Array([1.0, 1.0, 0.0, 1]),
+    new Float32Array([1.0, 0.0, 0.0, 1]),
+    new Float32Array([1.0, 0.5, 0.0, 1])
+  ];
+
+  this.matrix = new Float32Array([1,0,0,0,1,0,0,0,1]);
+  this.constUniforms = {
+    screenDimensions: this.screenDimensions
+  };
+  this.uniforms = {
+    matrix: this.matrix
+  };
+
+  this.maxPoofs = 20;
+  this.particleSystem = new tdl.particles.ParticleSystem(
+      gl, null, tdl.math.pseudoRandom);
+  this.poofs = setupPoofs(this.particleSystem, this.maxPoofs);
+  this.poofIndex = 0;
+  this.world = fast.matrix4.identity(new Float32Array(16));
+  this.view = fast.matrix4.identity(new Float32Array(16));
+  //this.projection = fast.matrix4.identity(new Float32Array(16));
+  this.viewProjection = fast.matrix4.identity(new Float32Array(16));
+  this.viewInverse = fast.matrix4.identity(new Float32Array(16));
+
+  this.baseFBO = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height, true);
+  this.persistentFBO1 = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height);
+  this.persistentFBO2 = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height);
+
+  this.persistPlane = makePersist(
+      this.baseFBO.texture, this.persistentFBO1.texture);
+
+  this.lastPlane = makeLastPlane(this.persistentFBO2.texture);
+}
+
+WebGLRenderer.prototype.resize = function() {
+  var width = this.canvas.clientWidth;
+  var height = this.canvas.clientHeight;
+  if (this.canvas.width != width ||
+      this.canvas.height != height) {
+    this.canvas.width = width;
+    this.canvas.height = height;
+    tdl.log("new width:", width);
+    tdl.log("new height:", height);
+    this.screenDimensions[0] = 2 / width;
+    this.screenDimensions[1] = 2 / height;
+    gl.viewport(0, 0, width, height);
+    this.projection = [
+      2 / width, 0, 0, 0,
+      0, -2 / height, 0, 0,
+      0, 0, 1, 0,
+      -1 + 1 / width, 1 - 1 / height, 0, 1];
+
+  }
+};
+
+WebGLRenderer.prototype.begin = function() {
+  this.lastModel = null;
+  this.screenDimensions[0] = 2 / this.canvas.width;
+  this.screenDimensions[1] = 2 / this.canvas.height;
+  this.baseFBO.bind();
+  gl.colorMask(true, true, true, true);
+  gl.depthMask(true);
+  gl.clearColor(0,0,0,0);
+  gl.clearDepth(1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+};
+
+WebGLRenderer.prototype.end = function() {
+  //this.particleSystem.draw(this.viewProjection, this.world, this.viewInverse);
+  this.particleSystem.draw(this.projection, this.world, this.viewInverse);
+  gl.disable(gl.BLEND);
+  gl.disable(gl.DEPTH_TEST);
+  this.baseFBO.unbind();
+
+  // blend base with persist1 into persist2
+  this.persistentFBO2.bind();
+  this.persistPlane.drawPrep();
+  this.persistPlane.draw({oldRender: this.persistentFBO1.texture});
+  this.persistentFBO2.unbind();
+
+  // draw on the backbuffer.
+  this.lastPlane.drawPrep();
+  this.lastPlane.draw({texture: this.persistentFBO2.texture});
+
+  // swap persist FBOs.
+  var temp = this.persistentFBO1;
+  this.persistentFBO1 = this.persistentFBO2;
+  this.persistentFBO2 = temp;
+};
+
+WebGLRenderer.prototype.drawShip = function(position, direction, color) {
+  if (this.lastModel != this.ship) {
+    this.ship.drawPrep(this.constUniforms);
+    this.lastModel = this.ship;
+  }
+  var c = Math.cos(direction);
+  var s = Math.sin(direction);
+
+  var m = this.matrix;
+  m[0] = c;
+  m[1] = s;
+  m[3] = -s;
+  m[4] = c;
+  m[6] = position[0];
+  m[7] = position[1];
+
+  this.uniforms.color = color.glColor;
+  this.ship.draw(this.uniforms);
+};
+
+WebGLRenderer.prototype.drawShot = function(position, count) {
+  if (this.lastModel != this.shot) {
+    this.shot.drawPrep(this.constUniforms);
+    this.lastModel = this.shot;
+  }
+
+  var c = Math.cos(0);
+  var s = Math.sin(0);
+
+  var m = this.matrix;
+  m[0] = c;
+  m[1] = s;
+  m[3] = -s;
+  m[4] = c;
+  m[6] = position[0];
+  m[7] = position[1];
+  this.uniforms.color = this.shotColors[count % this.shotColors.length];
+
+  this.shot.draw(this.uniforms);
+};
+
+WebGLRenderer.prototype.startExplosion = function(position, direction, color) {
+  var _tp_ = tdl.fast.matrix4.identity(new Float32Array(16));
+  _tp_[12] = position[0];
+  _tp_[13] = position[1];
+  // We have multiple poofs because if you only have one and it is still going
+  // when you trigger it a second time it will immediately start over.
+  this.poofs[this.poofIndex++].trigger(_tp_);
+  if (this.poofIndex == this.maxPoofs) {
+    this.poofIndex = 0;
+  }
+};
 
 /**
  * Player represnt a player in the game.
@@ -173,7 +590,7 @@ function Player(x, y, direction, clientId) {
   this.color = makeColor(g_playerCount);
   sendCmd("client", clientId, {
     cmd: 'setColor',
-    color: this.color
+    color: this.color.canvasColor
   });
 
   this.playerName = (++g_totalPlayerCount).toString();
@@ -188,7 +605,12 @@ function Player(x, y, direction, clientId) {
   this.shootTimer = 0;
   this.score = 0;
   this.timer = 0;
-  this.addToQueue();
+  if (window.io) {
+    this.addToQueue();
+  } else {
+    this.setState('fly');
+  }
+  g_activePlayers.push(this);
 }
 
 Player.prototype.timesUp = function(elapsedTime) {
@@ -209,25 +631,22 @@ tdl.log(this.id, state);
 
 Player.prototype.shoot = function() {
   if (this.shots.length >= this.maxShots) {
-    var shotId = this.shots.shift();
-    g_entitySys.deleteEntityById(shotId);
+    this.removeShot(this.shots[0]);
   }
 
-  this.shots.push((new Shot(
+  var shot = new Shot(
     this.position[0] + -Math.sin(this.direction) * 15,
     this.position[1] +  Math.cos(this.direction) * 15,
-    this.direction, this)).id);
+    this.direction, this);
+  g_shotsById[shot.id] = shot;
+  this.shots.push(shot);
 };
 
 Player.prototype.removeShot = function(shot) {
-  var shots = [];
-  for (var ii = 0; ii < this.shots.length; ++ii) {
-    var s = this.shots[ii];
-    if (s.id != shot.id) {
-      shots.push(s);
-    }
-  }
-  this.shots = shots;
+  var ndx = this.shots.indexOf(shot);
+  this.shots.splice(ndx, 1);
+  delete g_shotsById[shot.id];
+  g_entitySys.deleteEntityById(shot.id);
 };
 
 Player.prototype.removeFromActive = function() {
@@ -243,8 +662,7 @@ Player.prototype.removeFromGame = function() {
   g_queueMgr.removeFromQueue(this);
   this.removeFromActive();
   while (this.shots.length) {
-    var shotId = this.shots.shift();
-    g_entitySys.deleteEntityById(shotId);
+    this.removeShot(this.shots[0]);
   }
   g_entitySys.deleteEntity(this);
 }
@@ -262,10 +680,8 @@ Player.prototype.update = function(msg) {
   }
 };
 
-
 Player.prototype.state_queued = function(elapsedTime) {
 };
-
 
 Player.prototype.countdown = function() {
   this.timer = 3;
@@ -287,7 +703,6 @@ Player.prototype.state_launch = function(elapsedTime) {
   }
 };
 
-
 Player.prototype.state_fly = function(elapsedTime) {
   this.direction += this.turnVel * this.turn * elapsedTime;
   var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
@@ -304,6 +719,10 @@ Player.prototype.die = function(killer) {
   this.timer = 2;
   this.setState('die');
   this.removeFromActive();
+  g_renderer.startExplosion(
+      this.position,
+      this.direction,
+      this.color);
   killer.score++;
 };
 
@@ -312,7 +731,6 @@ Player.prototype.state_die = function(elapsedTime) {
     this.addToQueue();
   }
 };
-
 
 Player.prototype.collide = function(x, y, radius) {
   // TODO: need to put colliables on their own list or something
@@ -327,23 +745,12 @@ Player.prototype.collide = function(x, y, radius) {
   return distSq < radius * radius;
 };
 
-Player.prototype.draw = function(ctx) {
-  if (this.state != 'fly') {
-    return;
+Player.prototype.draw = function(renderer) {
+  switch (this.state) {
+    case 'fly':
+      renderer.drawShip(this.position, this.direction, this.color);
+      return;
   }
-  ctx.save();
-  ctx.translate(this.position[0], this.position[1]);
-  ctx.rotate(this.direction);
-  ctx.fillStyle = this.color;
-  ctx.beginPath();
-  ctx.closePath();
-  ctx.moveTo(0, 15);
-  ctx.lineTo(15, -15);
-  ctx.lineTo(0, -10);
-  ctx.lineTo(-15, -15);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
 };
 
 /**
@@ -357,24 +764,19 @@ function Shot(x, y, direction, owner) {
   this.duration = owner.shotDuration;
   this.direction = direction;
   this.drawCount = 0;
+
+
+  this.matrix = new Float32Array([1,0,0,0,1,0,0,0,1]);
+  this.uniforms = {
+    matrix: this.matrix
+  };
+
   g_entitySys.addEntity(this);
 }
 
 Shot.prototype.remove = function() {
   this.owner.removeShot(this);
-  g_entitySys.deleteEntity(this);
 };
-
-Shot.colors = [
-  "#800000",
-  "#ff0000",
-  "#ff8000",
-  "#ffff00",
-  "#ffffff",
-  "#ffff00",
-  "#ff0000",
-  "#ff8000"
-];
 
 Shot.prototype.process = function(elapsedTime) {
   this.duration -= elapsedTime;
@@ -401,22 +803,9 @@ Shot.prototype.process = function(elapsedTime) {
   }
 };
 
-Shot.prototype.draw = function(ctx) {
-  ++this.drawCount;
-  ctx.save();
-  ctx.translate(this.position[0], this.position[1]);
-  ctx.fillStyle = Shot.colors[this.drawCount % Shot.colors.length];
-  ctx.beginPath();
-  ctx.closePath();
-  ctx.moveTo(0, 5);
-  ctx.lineTo(5, 0);
-  ctx.lineTo(0, -5);
-  ctx.lineTo(-5, 0);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
+Shot.prototype.draw = function(renderer) {
+  renderer.drawShot(this.position, ++this.drawCount);
 };
-
 
 function updatePos(pos, dx, dy) {
   var x = pos[0] + dx;
@@ -435,17 +824,6 @@ function updatePos(pos, dx, dy) {
 
   pos[0] = x;
   pos[1] = y;
-}
-
-function resizeCanvas() {
-  if (g_canvas.width != g_canvas.clientWidth) {
-    g_canvas.width = g_canvas.clientWidth;
-    tdl.log("new width:", g_canvas.width);
-  }
-  if (g_canvas.height != g_canvas.clientHeight) {
-    g_canvas.height = g_canvas.clientHeight;
-    tdl.log("new height:", g_canvas.height);
-  }
 }
 
 /**
@@ -563,7 +941,7 @@ ScoreManager.prototype.calculateScores = function() {
 
   if (this.orderedPlayers_.length > this.maxScores_)
     this.orderedPlayers_.length = this.maxScores_;
-}
+};
 
 ScoreManager.prototype.drawScores = function() {
   for (var ii = 0; ii < this.orderedPlayers_.length; ++ii) {
@@ -573,12 +951,12 @@ ScoreManager.prototype.drawScores = function() {
   for (var ii = this.orderedPlayers_.length; ii < this.maxScores_; ++ii) {
     this.elements_[ii].innerHTML = "";
   }
-}
+};
 
 ScoreManager.prototype.update = function() {
   this.calculateScores();
   this.drawScores();
-}
+};
 
 /**
  * Processes and Draws all the entities.
@@ -617,21 +995,22 @@ EntitySystem.prototype.processEntities = function(elapsedTime) {
   }
 };
 
-EntitySystem.prototype.drawEntities = function(ctx) {
-  for (var id in this.entities_) {
-    this.entities_[id].draw(ctx);
-  }
-};
-
 function main() {
   g_canvas = document.getElementById("canvas");
-  g_ctx = g_canvas.getContext("2d");
+  //g_renderer = new CanvasRenderer(g_canvas);
+  g_renderer = new WebGLRenderer(g_canvas);
+
   connect();
   sendCmd("server");
 
   g_entitySys = new EntitySystem();
   g_queueMgr = new QueueManager();
   g_scoreMgr = new ScoreManager();
+
+  // Add a 2 players if there is no communication
+  if (!window.io) {
+    startLocalPlayers();
+  }
 
   var then = (new Date()).getTime() * 0.001;
   render();
@@ -646,11 +1025,117 @@ function main() {
     g_entitySys.processEntities(elapsedTime);
     g_scoreMgr.update();
 
-    resizeCanvas();
-    g_ctx.clearRect(0, 0, g_canvas.width, g_canvas.height);
-    g_entitySys.drawEntities(g_ctx);
+    g_renderer.resize();
+    g_renderer.begin();
+
+    for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+      g_activePlayers[ii].draw(g_renderer);
+    }
+    for (var shotId in g_shotsById) {
+      g_shotsById[shotId].draw(g_renderer);
+    }
+
+    g_renderer.end();
+
+    // turn off logging after 1 frame.
+    g_logGLCalls = false;
+  }
+}
+
+function startLocalPlayers() {
+  var player1 = startPlayer(1);
+  var player2 = startPlayer(2);
+  var g_left = false;
+  var g_right = false;
+  var g_fire = false;
+  var g_keyState = { };
+  var g_oldKeyState = { };
+
+  // simulate clientside sendCmd
+  function sendCmd(cmd, data) {
+    player1.update(data);
   }
 
+  function handleKeyDown(keyCode, state) {
+    switch(event.keyCode) {
+    case 37: // left
+      if (!g_left) {
+        g_left = true;
+        sendCmd("update", {
+            cmd: 'turn',
+            turn: -1
+        });
+      }
+      break;
+    case 39: // right
+      if (!g_right) {
+        g_right = true;
+        sendCmd("update", {
+            cmd: 'turn',
+            turn: 1
+        });
+      }
+      break;
+    case 90: // z
+      if (!g_fire) {
+        g_fire = true;
+        sendCmd("update", {
+            cmd: 'fire',
+            fire: 1
+        });
+      }
+      break;
+    }
+  }
+
+  function handleKeyUp(keyCode, state) {
+    switch(event.keyCode) {
+    case 37: // left
+      g_left = false;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: (g_right) ? 1 : 0
+      });
+      break;
+    case 39: // right
+      g_right = false;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: (g_left) ? -1 : 0
+      });
+      break;
+    case 90: // z
+      g_fire = false;
+      sendCmd("update", {
+          cmd: 'fire',
+          fire: 0
+      });
+      break;
+    }
+  }
+
+  function updateKey(keyCode, state) {
+    g_keyState[keyCode] = state;
+    if (g_oldKeyState != g_keyState) {
+      g_oldKeyState = state;
+      if (state) {
+        handleKeyDown(keyCode);
+      } else {
+        handleKeyUp(keyCode);
+      }
+    }
+  }
+
+  function keyUp(event) {
+    updateKey(event.keyCode, false);
+  }
+
+  function keyDown(event) {
+    updateKey(event.keyCode, true);
+  }
+
+  window.addEventListener("keyup", keyUp, false);
+  window.addEventListener("keydown", keyDown, false);
 }
 </script>
 </head>
@@ -668,6 +1153,73 @@ function main() {
     </div>
   </div>
 </div>
+<script id="screenVertexShader" type="whatever">
+uniform mat3 matrix;
+uniform vec2 screenDimensions;
+attribute vec2 position;
+
+void main() {
+  vec3 pos = vec3(-1, -1, 0) + matrix * vec3(position, 1) * vec3(screenDimensions, 0);
+  gl_Position = vec4(pos.x, -pos.y, 0, 1);
+}
+</script>
+<script id="screenFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform vec4 color;
+void main() {
+  gl_FragColor = color;
+}
+</script>
+<script id="persistVertexShader" type="whatever">
+attribute vec2 position;
+attribute vec2 texCoord;
+varying vec2 v_texCoord;
+void main() {
+  gl_Position = vec4(position, 0, 1);
+  v_texCoord = texCoord;
+}
+</script>
+<script id="persistFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform sampler2D newRender;
+uniform sampler2D oldRender;
+varying vec2 v_texCoord;
+void main() {
+  vec4 newColor = texture2D(newRender, v_texCoord);
+  vec4 oldColor = texture2D(oldRender, v_texCoord);
+
+  gl_FragColor =
+    vec4(
+      mix(oldColor.g * 0.8, newColor.r, length(newColor.xyz)),
+      mix(oldColor.b * 0.8, newColor.g, length(newColor.xyz)),
+      mix(oldColor.r * 0.8, newColor.b, length(newColor.xyz)),
+      1);
+}
+</script>
+<script id="mainVertexShader" type="whatever">
+attribute vec2 position;
+attribute vec2 texCoord;
+varying vec2 v_texCoord;
+void main() {
+  gl_Position = vec4(position, 0, 1);
+  v_texCoord = texCoord;
+}
+</script>
+<script id="mainFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform sampler2D texture;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(texture, v_texCoord);
+  gl_FragColor = color;
+}
+</script>
 </body>
 </html>
 
