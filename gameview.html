@@ -1189,7 +1189,12 @@ void main() {
   vec4 newColor = texture2D(newRender, v_texCoord);
   vec4 oldColor = texture2D(oldRender, v_texCoord);
 
-  gl_FragColor = mix(oldColor * 0.8, newColor, length(newColor.xyz));
+  gl_FragColor =
+    vec4(
+      mix(oldColor.g * 0.8, newColor.r, length(newColor.xyz)),
+      mix(oldColor.b * 0.8, newColor.g, length(newColor.xyz)),
+      mix(oldColor.r * 0.8, newColor.b, length(newColor.xyz)),
+      1);
 }
 </script>
 <script id="mainVertexShader" type="whatever">
