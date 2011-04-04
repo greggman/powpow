@@ -44,6 +44,12 @@ html, body {
   width: 100%;
   height: 100%;
   display: none;
+  background: url(assets/arrows.png) no-repeat center;
+}
+#singleTouchControls .canvas {
+  position relative;
+  z-index: 4;
+  border: 2px solid yellow;
 }
 #keyControls {
   position: absolute;
@@ -96,6 +102,12 @@ var g_right = false;
 var g_fire = false;
 var g_keyState = {};
 var g_oldKeyState = {};
+var g_dirTouchStart = 0;
+var g_numTouches = 0;
+var g_ctx = 0;
+var g_canvas;
+var g_startX;
+var g_startY;
 
 function $(id) {
   return document.getElementById(id);
@@ -106,6 +118,9 @@ function logTo(id, str) {
   var d = document.createElement("div");
   d.appendChild(document.createTextNode(str));
   c.appendChild(d);
+  while(d.children.length > 6) {
+    d.removeChild(d.firstChild);
+  }
 }
 
 function log() {
@@ -159,7 +174,9 @@ function debugTouch(label, event) {
   logTo("status", label);
   for (var ii = 0; ii < allTouches.length; ++ii) {
     var touch = allTouches[ii];
-    logTo("status", "  " + ii + ": " + touch.pageX + ", " + touch.pageY);
+    logTo("status", "  " + ii + ": " + touch.pageX + ", " + touch.pageY +
+          " cw: " + event.target.clientWidth +
+          " ch: " + event.target.clientHeight);
   }
   var s = $("status");
   s.scrollTop = s.scrollHeight;
@@ -167,16 +184,117 @@ function debugTouch(label, event) {
 
 function touchStart(event) {
   event.preventDefault();
+  var allTouches = event.touches;
+  var width = event.target.clientWidth;
+  var halfWidth = width * 0.5;
+  for (var ii = 0; ii < allTouches.length; ++ii) {
+    ++g_numTouches;
+    var touch = allTouches[ii];
+    if (touch.pageX < halfWidth) {
+      g_dirTouchStart = touch.pageX;
+    } else {
+      if (!g_fire) {
+        g_fire = true;
+        sendCmd("update", {
+            cmd: 'fire',
+            fire: 1
+        });
+      }
+    }
+  }
+
   debugTouch("start", event);
 }
 
 function touchMove(event) {
   event.preventDefault();
+  var allTouches = event.touches;
+  var width = event.target.clientWidth;
+  var halfWidth = width * 0.5;
+  for (var ii = 0; ii < allTouches.length; ++ii) {
+    var touch = allTouches[ii];
+    if (touch.pageX < halfWidth) {
+      var dx = touch.pageX - g_dirTouchStart;
+      if (dx < -15) {
+        if (!g_left) {
+          g_left = 1;
+          g_right = 0;
+          sendCmd("update", {
+              cmd: 'turn',
+              turn: -1
+          });
+        }
+      } else if (dx > 15) {
+        if (!g_right) {
+          g_left = 0;
+          g_right = 1;
+          sendCmd("update", {
+              cmd: 'turn',
+              turn: 1
+          });
+        }
+      } else {
+        if (g_right || g_left) {
+          g_left = 0;
+          g_right = 0;
+          sendCmd("update", {
+              cmd: 'turn',
+              turn: 0
+          });
+        }
+      }
+    }
+  }
   debugTouch("move", event);
 }
 
 function touchEnd(event) {
   event.preventDefault();
+
+  var allTouches = event.touches;
+  var width = event.target.clientWidth;
+  var halfWidth = width * 0.5;
+  for (var ii = 0; ii < allTouches.length; ++ii) {
+    --g_numTouches;
+    var touch = allTouches[ii];
+    if (touch.pageX < halfWidth) {
+      if (g_right || g_left) {
+        g_left = 0;
+        g_right = 0;
+        sendCmd("update", {
+            cmd: 'turn',
+            turn: 0
+        });
+      }
+    } else {
+      if (g_fire) {
+        g_fire = false;
+        sendCmd("update", {
+            cmd: 'fire',
+            fire: 0
+        });
+      }
+    }
+  }
+
+  if (g_numTouches == 0) {
+    if (g_right || g_left) {
+      g_left = 0;
+      g_right = 0;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: 0
+      });
+    }
+    if (g_fire) {
+      g_fire = false;
+      sendCmd("update", {
+          cmd: 'fire',
+          fire: 0
+      });
+    }
+  }
+
   debugTouch("end", event);
 }
 
@@ -185,24 +303,66 @@ function touchCancel(event) {
   debugTouch("cancel", event);
 }
 
+function updateTarget(element, x, y) {
+  var centerX = element.clientWidth / 2;
+  var centerY = element.clientWidth / 2;
+  var dx = x - centerX;
+  var dy = y - centerY;
+  var direction = Math.atan2(dy, dx);
+  sendCmd("update", {
+      cmd: 'target',
+      target: (direction + Math.PI / 2 * 3) % (Math.PI * 2)
+  });
+
+  var ctx = g_ctx;
+  ctx.clearRect(0, 0, g_canvas.width, g_canvas.height);
+  ctx.save();
+  ctx.translate(g_canvas.width / 2, g_canvas.height / 2);
+  ctx.rotate(direction - Math.PI / 2);
+  ctx.fillStyle = "#FF0";
+  ctx.beginPath();
+  ctx.closePath();
+  ctx.moveTo(10, 0);
+  ctx.lineTo(10, 100);
+  ctx.lineTo(30, 100);
+  ctx.lineTo(0, 140);
+  ctx.lineTo(-30, 100);
+  ctx.lineTo(-10, 100);
+  ctx.lineTo(-10, 00);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+};
+
 function singleTouchStart(event) {
   event.preventDefault();
-  debugTouch("start", event);
+  sendCmd("update", {
+      cmd: 'fire',
+      fire: 1
+  });
+  updateTarget(event.target, event.touches[0].pageX, event.touches[0].pageY);
 }
 
 function singleTouchMove(event) {
   event.preventDefault();
-  debugTouch("move", event);
+  updateTarget(event.target, event.touches[0].pageX, event.touches[0].pageY);
 }
 
 function singleTouchEnd(event) {
   event.preventDefault();
-  debugTouch("end", event);
+  sendCmd("update", {
+      cmd: 'fire',
+      fire: 0
+  });
 }
 
 function singleTouchCancel(event) {
   event.preventDefault();
-  debugTouch("cancel", event);
+  sendCmd("update", {
+      cmd: 'fire',
+      fire: 0
+  });
 }
 
 
@@ -306,6 +466,8 @@ function main() {
       surface.addEventListener("touchmove", singleTouchMove, false);
       surface.addEventListener("touchend", singleTouchEnd, false);
       surface.addEventListener("touchcancel", singleTouchCancel, false);
+      g_canvas = document.getElementsByTagName("canvas")[0];
+      g_ctx = g_canvas.getContext("2d");
     } else {
       surface.addEventListener("touchstart", touchStart, false);
       surface.addEventListener("touchmove", touchMove, false);
@@ -340,6 +502,7 @@ function main() {
 <div id="singleTouchControls">
   <div class="move">
     <div class="msg">Press to Steer, Tap to Fire</div>
+    <canvas class="canvas" width="300" height="300"></canvas>
   </div>
 </div>
 <div id="keyControls">
