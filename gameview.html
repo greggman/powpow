@@ -605,8 +605,11 @@ function Player(x, y, direction, clientId) {
   this.shootTimer = 0;
   this.score = 0;
   this.timer = 0;
-//  this.addToQueue();
-  this.setState('fly');
+  if (window.io) {
+    this.addToQueue();
+  } else {
+    this.setState('fly');
+  }
   g_activePlayers.push(this);
 }
 
