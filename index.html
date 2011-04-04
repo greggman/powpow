@@ -36,6 +36,15 @@ html, body {
   width: 100%;
   height: 100%;
 }
+#singleTouchControls {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  display: none;
+}
 #keyControls {
   position: absolute;
   top: 0px;
@@ -45,7 +54,7 @@ html, body {
   height: 100%;
   display: none;
 }
-#move {
+.move {
   float: left;
   width: 50%;
   height: 100%;
@@ -54,13 +63,16 @@ html, body {
   background-color: rgba(255, 255, 255, 0.2);
   display: table-cell;
 }
-#fire {
+.fire {
   float: right;
   width: 50%;
   height: 100%;
   vertical-align: middle;
   color: white;
   background-color: rgba(0, 0, 0, 0.2);
+}
+#singleTouchControls .move {
+  width: 100%;
 }
 #top {
   position: absolute;
@@ -173,6 +185,27 @@ function touchCancel(event) {
   debugTouch("cancel", event);
 }
 
+function singleTouchStart(event) {
+  event.preventDefault();
+  debugTouch("start", event);
+}
+
+function singleTouchMove(event) {
+  event.preventDefault();
+  debugTouch("move", event);
+}
+
+function singleTouchEnd(event) {
+  event.preventDefault();
+  debugTouch("end", event);
+}
+
+function singleTouchCancel(event) {
+  event.preventDefault();
+  debugTouch("cancel", event);
+}
+
+
 function handleKeyDown(keyCode, state) {
   switch(event.keyCode) {
   case 37: // left
@@ -264,14 +297,24 @@ function main() {
 
   var surface = $("top");
   if (haveTouch) {
-    surface.addEventListener("touchstart", touchStart, false);
-    surface.addEventListener("touchmove", touchMove, false);
-    surface.addEventListener("touchend", touchEnd, false);
-    surface.addEventListener("touchcancel", touchCancel, false);
+    if (navigator.userAgent.indexOf("Android") >= 0 && !window.opera) {
+      var singleTouchControls = $("singleTouchControls");
+      var touchControls = $("touchControls");
+      singleTouchControls.style.display = "block";
+      touchControls.style.display = "none";
+      surface.addEventListener("touchstart", singleTouchStart, false);
+      surface.addEventListener("touchmove", singleTouchMove, false);
+      surface.addEventListener("touchend", singleTouchEnd, false);
+      surface.addEventListener("touchcancel", singleTouchCancel, false);
+    } else {
+      surface.addEventListener("touchstart", touchStart, false);
+      surface.addEventListener("touchmove", touchMove, false);
+      surface.addEventListener("touchend", touchEnd, false);
+      surface.addEventListener("touchcancel", touchCancel, false);
+    }
   } else {
     var keyControls = $("keyControls");
     var touchControls = $("touchControls");
-    log(touchControls.style.display);
     keyControls.style.display = "block";
     touchControls.style.display = "none";
     window.addEventListener("keyup", keyUp, false);
@@ -287,18 +330,23 @@ function main() {
   </div>
 </div>
 <div id="touchControls">
-  <div id="move">
+  <div class="move">
     <div class="msg">Press here to Move and Steer</div>
   </div>
-  <div id="fire">
+  <div class="fire">
     <div class="msg">Press here to Fire</div>
   </div>
 </div>
+<div id="singleTouchControls">
+  <div class="move">
+    <div class="msg">Press to Steer, Tap to Fire</div>
+  </div>
+</div>
 <div id="keyControls">
-  <div id="move">
+  <div class="move">
     <div class="msg">Press Cursor Keys to Steer</div>
   </div>
-  <div id="fire">
+  <div class="fire">
     <div class="msg">Press Z to Fire</div>
   </div>
 </div>
