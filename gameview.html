@@ -11,6 +11,8 @@ html, body {
   margin: 0px;
   background-color: black;
   font-family: sans-serif;
+  color: white;
+  font-size: 20px;
 }
 #outer {
   width: 100%;
@@ -20,6 +22,8 @@ html, body {
   float: left;
   width: 85%;
   height: 100%;
+  gbackground-image: url(assets/background.jpg);
+  gbackground-size: 100%;
 }
 #status {
   float: right;
@@ -32,10 +36,14 @@ html, body {
   height: 50%;
   background-color: blue;
 }
-#highscores-outer {
+#queue-outer {
   width: 100%;
   height: 50%;
-  background-color: blue;
+  background-color: #008;
+}
+#queue-canvas {
+  width: 100%;
+  height: 100%;
 }
 </style>
 <!-- Note: Socket IO is served from the socket io based server -->
@@ -235,8 +243,8 @@ CanvasRenderer.prototype.resize = function() {
       this.canvas.height != this.canvas.clientHeight) {
     this.canvas.width = this.canvas.clientWidth;
     this.canvas.height = this.canvas.clientHeight;
-    tdl.log("new width:", this.canvas.width);
-    tdl.log("new height:", this.canvas.height);
+    //tdl.log("new width:", this.canvas.width);
+    //tdl.log("new height:", this.canvas.height);
   }
 };
 
@@ -247,12 +255,11 @@ CanvasRenderer.prototype.begin = function() {
 CanvasRenderer.prototype.end = function() {
 };
 
-CanvasRenderer.prototype.drawShip = function(position, direction, color) {
-  var ctx = this.ctx;
+function drawShip(ctx, x, y, direction, color) {
   ctx.save();
-  ctx.translate(position[0], position[1]);
+  ctx.translate(x, y);
   ctx.rotate(direction);
-  ctx.fillStyle = color.canvasColor;
+  ctx.fillStyle = color;
   ctx.beginPath();
   ctx.closePath();
   ctx.moveTo(0, 15);
@@ -262,6 +269,10 @@ CanvasRenderer.prototype.drawShip = function(position, direction, color) {
   ctx.closePath();
   ctx.fill();
   ctx.restore();
+}
+
+CanvasRenderer.prototype.drawShip = function(position, direction, color) {
+  drawShip(this.ctx, position[0], position[1], direction, color.canvasColor);
 };
 
 CanvasRenderer.prototype.drawShot = function(position, count) {
@@ -299,6 +310,8 @@ function WebGLRenderer(canvas) {
   this.gl = gl;
   this.screenDimensions = [2 / this.canvas.width, 2 / this.canvas.height];
   this.resize();
+  var width = this.canvas.width;
+  var height = this.canvas.height;
 
   function makeShip() {
     var arrays = {
@@ -394,6 +407,32 @@ function WebGLRenderer(canvas) {
         spinSpeedRange: 4});
   }
 
+  function setupStars(particleSystem) {
+    var emitter = particleSystem.createParticleEmitter();
+    emitter.setTranslation(0, 0, 0);
+    emitter.setState(tdl.particles.ParticleStateIds.ADD);
+    emitter.setColorRamp(
+        [0, 0, 1, 0.5,
+         0, 0, 1, 1,
+         0.5, 0.5, 1, 1,
+         1, 1, 1, 1,
+         0.5, 0.5, 1, 1,
+         0, 0, 1, 1,
+         0, 0, 1, 0.5,
+         0, 0, 0, 0]);
+    emitter.setParameters({
+        numParticles: 1000,
+        lifeTime: 5,
+        lifeTimeRange: 5,
+        timeRange: 5,
+        startSize: 10,
+        startSizeRange: 15,
+        endSize: 10,
+        position:[width / 2, height / 2, 0],
+        positionRange: [width / 2, height / 2, 0]
+      });
+  }
+
   function setupPoofs(particleSystem, maxPoofs) {
     var poofs = [];
     var emitter = particleSystem.createParticleEmitter();
@@ -451,6 +490,7 @@ function WebGLRenderer(canvas) {
   this.maxPoofs = 20;
   this.particleSystem = new tdl.particles.ParticleSystem(
       gl, null, tdl.math.pseudoRandom);
+  setupStars(this.particleSystem);
   this.poofs = setupPoofs(this.particleSystem, this.maxPoofs);
   this.poofIndex = 0;
   this.world = fast.matrix4.identity(new Float32Array(16));
@@ -479,8 +519,8 @@ WebGLRenderer.prototype.resize = function() {
       this.canvas.height != height) {
     this.canvas.width = width;
     this.canvas.height = height;
-    tdl.log("new width:", width);
-    tdl.log("new height:", height);
+    //tdl.log("new width:", width);
+    //tdl.log("new height:", height);
     this.screenDimensions[0] = 2 / width;
     this.screenDimensions[1] = 2 / height;
     gl.viewport(0, 0, width, height);
@@ -498,7 +538,7 @@ WebGLRenderer.prototype.begin = function() {
   this.screenDimensions[0] = 2 / this.canvas.width;
   this.screenDimensions[1] = 2 / this.canvas.height;
   this.baseFBO.bind();
-  gl.colorMask(true, true, true, true);
+  gl.colorMask(true, true, true, false);
   gl.depthMask(true);
   gl.clearColor(0,0,0,0);
   gl.clearDepth(1);
@@ -629,7 +669,7 @@ Player.prototype.addToQueue = function() {
 }
 
 Player.prototype.setState = function(state) {
-tdl.log(this.id, state);
+  //tdl.log(this.id, state);
   this.state = state;
   this.process = this["state_" + state];
 }
@@ -691,6 +731,7 @@ Player.prototype.update = function(msg) {
 };
 
 Player.prototype.state_queued = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
 };
 
 Player.prototype.countdown = function() {
@@ -699,6 +740,7 @@ Player.prototype.countdown = function() {
 };
 
 Player.prototype.state_countdown = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
   if (this.timesUp(elapsedTime)) {
     this.timer = 0.5;
     this.setState('launch');
@@ -706,6 +748,7 @@ Player.prototype.state_countdown = function(elapsedTime) {
 };
 
 Player.prototype.state_launch = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
   if (this.timesUp(elapsedTime)) {
     g_activePlayers.push(this);
     this.setState('fly');
@@ -713,7 +756,7 @@ Player.prototype.state_launch = function(elapsedTime) {
   }
 };
 
-Player.prototype.state_fly = function(elapsedTime) {
+Player.prototype.updateDirection = function(elapsedTime) {
   // turn player based on this.turn (-1, 0, 1)
   this.direction += this.turnVel * this.turn * elapsedTime;
   this.direction = this.direction % (Math.PI * 2);
@@ -734,6 +777,10 @@ Player.prototype.state_fly = function(elapsedTime) {
     this.direction += turnVel * turn * elapsedTime;
     this.direction = this.direction % (Math.PI * 2);
   }
+};
+
+Player.prototype.state_fly = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
   var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
   var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
   updatePos(this.position, dx, dy);
@@ -793,7 +840,6 @@ function Shot(x, y, direction, owner) {
   this.duration = owner.shotDuration;
   this.direction = direction;
   this.drawCount = 0;
-
 
   this.matrix = new Float32Array([1,0,0,0,1,0,0,0,1]);
   this.uniforms = {
@@ -862,9 +908,85 @@ function QueueManager() {
   this.launching_ = [];
   this.queue_ = [];
   this.timer_ = 0;
+
   this.element_ = $("queue");
   this.elements_ = [];
+
+  var canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  var ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#008";
+  ctx.fillRect(0, 0, 32, 32);
+  ctx.globalCompositeOperation = "copy";
+  drawShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
+  this.shipURL = canvas.toDataURL();
+
+
+//  this.rowHeight_ = 40;
+//  this.canvas_ = $("queue-canvas");
+//  this.ctx_ = this.canvas_.getContext("2d");
+//  this.resize();
 };
+
+//QueueManager.prototype.resize = function() {
+//  if (this.canvas_.width != this.canvas_.clientWidth ||
+//      this.canvas_.height != this.canvas_.clientHeight) {
+//    this.canvas_.width = this.canvas_.clientWidth;
+//    this.canvas_.height = this.canvas_.clientHeight;
+//    tdl.log("newq width:", this.canvas_.width);
+//    tdl.log("newq height:", this.canvas_.height);
+//  }
+//};
+//
+//QueueManager.prototype.draw = function() {
+//  this.resize();
+//  var ctx = this.ctx_;
+//  var canvas = this.canvas_;
+//  var height = this.canvas_.height;
+//  ctx.clearRect(0, 0, this.canvas_.width, this.canvas_.height);
+//  // draw launching players
+//  var y = 0;
+//  var count = 0;
+//  for (var ii = 0; y < height && ii < this.launching_.length; ++ii) {
+//    var player = this.launching_[ii];
+//    this.drawPlayer(player, y, count, true);
+//    y += this.rowHeight_;
+//    ++count;
+//  }
+//  // draw queued players.
+//  for (var ii = 0; y < height && ii < this.queue_.length; ++ii) {
+//    var player = this.queue_[ii];
+//    this.drawPlayer(player, y, count, false);
+//    y += this.rowHeight_;
+//    ++count;
+//  }
+//};
+//
+//QueueManager.prototype.drawPlayer = function(player, y, count, launching) {
+//  var ctx = this.ctx_;
+//  var canvas = this.canvas_;
+//  var width = this.canvas_.width;
+//  ctx.fillStyle = count % 2 ? "#006" : "#00A";
+//  var color = player.color.canvasColor;
+//  if (launching) {
+//    var cl = Math.floor(player.timer * 16);
+//    switch (cl % 4) {
+//    case 0:
+//      color = "#f00";
+//      break;
+//    case 2:
+//      color = "#ff0";
+//    }
+//  }
+//  ctx.fillRect(0, 0, width, this.rowHeight_);
+//  drawShip(
+//      ctx,
+//      this.rowHeight_ / 2,
+//      y + this.rowHeight_ / 2,
+//      player.direction,
+//      color);
+//};
 
 QueueManager.prototype.draw = function() {
   this.setElements_(0, this.launching_, true);
@@ -872,7 +994,7 @@ QueueManager.prototype.draw = function() {
   for (var ii = this.launching_.length + this.queue_.length;
        ii < this.elements_.length; ++ii) {
     var element = this.elements_[ii];
-    element.innerHTML = "";
+    element.line.style.display = "none";
   }
 };
 
@@ -880,8 +1002,38 @@ QueueManager.prototype.getElement_ = function(index) {
   var element = this.elements_[index];
   if (!element) {
     element = document.createElement("div");
+    element.style.position = "relative";
+    element.style.height = "40px";
+    element.style.display = "block";
+    //element.style.verticalAlign = "middle";
+    var span = document.createElement("div");
+    span.style.width = "32px";
+    span.style.height = "32px";
+    span.style.position = "absolute";
+    span.style.top = "0px";
+    span.style.left = "0px";
+    var img = document.createElement("img");
+    img.src = this.shipURL;
+    img.style.zIndex = 5;
+    img.style.position = "absolute";
+    img.style.top = "0px";
+    img.style.left = "0px";
+    var name = document.createElement("div");
+    name.style.position = "absolute";
+    name.style.top = "4px";
+    name.style.left = "40px";
+    name.style.color = "yellow";
+    name.style.fontFamily = "sans-serif";
+    name.style.fontSize = "24px";
+    element.appendChild(span);
+    element.appendChild(img);
+    element.appendChild(name);
     this.element_.appendChild(element);
-    this.elements_.push(element);
+    this.elements_.push({
+      line: element,
+      span: span,
+      img: img,
+      name: name});
   }
   return element;
 };
@@ -890,13 +1042,17 @@ QueueManager.prototype.setElements_ = function(index, players, launching) {
   for (var ii = 0; ii < players.length; ++ii) {
     var player = players[ii];
     var element = this.getElement_(index + ii);
+    element.line.style.display = "block";
+    element.name.innerHTML = player.playerName;
+    element.span.style.backgroundColor = player.color.canvasColor;
     if (launching) {
-      element.innerHTML = "Launch: " + player.playerName;
+      element.name.color = "#f00";
     } else {
-      element.innerHTML = "Waiting: " + player.playerName;
+      element.name.color = "#ff0";
     }
   }
 };
+
 
 QueueManager.prototype.addToQueue = function(player) {
   this.queue_.push(player);
@@ -1033,8 +1189,8 @@ function main() {
   sendCmd("server");
 
   g_entitySys = new EntitySystem();
-  g_queueMgr = new QueueManager();
   g_scoreMgr = new ScoreManager();
+  g_queueMgr = new QueueManager();
 
   // Add a 2 players if there is no communication
   if (!window.io) {
@@ -1048,7 +1204,7 @@ function main() {
     var now = (new Date()).getTime() * 0.001;
     var elapsedTime = now - then;
     then = now;
-    tdl.webgl.requestAnimationFrame(render, canvas);
+    tdl.webgl.requestAnimationFrame(render, g_canvas);
 
     g_queueMgr.process(elapsedTime);
     g_entitySys.processEntities(elapsedTime);
@@ -1063,6 +1219,8 @@ function main() {
     for (var shotId in g_shotsById) {
       g_shotsById[shotId].draw(g_renderer);
     }
+
+    //g_queueMgr.draw();
 
     g_renderer.end();
 
@@ -1178,7 +1336,7 @@ function startLocalPlayers() {
     </div>
     <div id="queue-outer">
       <div class="headline">Waiting</div>
-      <div id="queue"></div>
+      <div id="queue"><!--<canvas id="queue-canvas"></canvas>--></div>
     </div>
   </div>
 </div>
