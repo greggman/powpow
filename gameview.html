@@ -426,10 +426,12 @@ function WebGLRenderer(canvas) {
         lifeTimeRange: 5,
         timeRange: 5,
         startSize: 10,
-        startSizeRange: 15,
+        startSizeRange: 10,
         endSize: 10,
-        position:[width / 2, height / 2, 0],
-        positionRange: [width / 2, height / 2, 0]
+        position: [width / 2, height / 2, 0],
+        positionRange: [width / 2 + 40, height / 2 + 40, 0],
+        velocity: [-20, 10, 0],
+        //colorMultRange: [1, 1, 1, 0],
       });
   }
 
@@ -1001,11 +1003,11 @@ QueueManager.prototype.draw = function() {
 QueueManager.prototype.getElement_ = function(index) {
   var element = this.elements_[index];
   if (!element) {
-    element = document.createElement("div");
-    element.style.position = "relative";
-    element.style.height = "40px";
-    element.style.display = "block";
-    //element.style.verticalAlign = "middle";
+    line = document.createElement("div");
+    line.style.position = "relative";
+    line.style.height = "40px";
+    line.style.display = "block";
+    //line.style.verticalAlign = "middle";
     var span = document.createElement("div");
     span.style.width = "32px";
     span.style.height = "32px";
@@ -1025,15 +1027,17 @@ QueueManager.prototype.getElement_ = function(index) {
     name.style.color = "yellow";
     name.style.fontFamily = "sans-serif";
     name.style.fontSize = "24px";
-    element.appendChild(span);
-    element.appendChild(img);
-    element.appendChild(name);
-    this.element_.appendChild(element);
-    this.elements_.push({
-      line: element,
+    line.appendChild(span);
+    line.appendChild(img);
+    line.appendChild(name);
+    this.element_.appendChild(line);
+    var element = {
+      line: line,
       span: span,
       img: img,
-      name: name});
+      name: name
+    };
+    this.elements_.push(element);
   }
   return element;
 };
