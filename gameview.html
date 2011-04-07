@@ -1,0 +1,1421 @@
+<!doctype html>
+<html>
+<head>
+<title>PowPow</title>
+<style>
+html, body {
+  width: 100%;
+  height: 100%;
+  border: 0px;
+  padding: 0px;
+  margin: 0px;
+  background-color: black;
+  font-family: sans-serif;
+  color: white;
+  font-size: 20px;
+}
+#outer {
+  width: 100%;
+  height: 100%;
+}
+#canvas {
+  float: left;
+  width: 85%;
+  height: 100%;
+  gbackground-image: url(assets/background.jpg);
+  gbackground-size: 100%;
+}
+#status {
+  float: right;
+  width: 15%;
+  background-color: red;
+  height: 100%;
+}
+#highscores-outer {
+  width: 100%;
+  height: 50%;
+  background-color: blue;
+}
+#queue-outer {
+  width: 100%;
+  height: 50%;
+  background-color: #008;
+}
+#queue-canvas {
+  width: 100%;
+  height: 100%;
+}
+</style>
+<!-- Note: Socket IO is served from the socket io based server -->
+<script type="text/javascript" src="socket.io/socket.io.js"></script>
+<script type="text/javascript" src="tdl/base.js"></script>
+<script>
+tdl.require('audio');
+tdl.require('tdl.buffers');
+tdl.require('tdl.fast');
+tdl.require('tdl.framebuffers');
+tdl.require('tdl.log');
+tdl.require('tdl.math');
+tdl.require('tdl.models');
+tdl.require('tdl.particles');
+tdl.require('tdl.primitives');
+tdl.require('tdl.programs');
+tdl.require('tdl.textures');
+tdl.require('tdl.webgl');
+
+window.onload = main;
+
+var g_maxActivePlayers = 3;
+var g_playerCount = 1;
+var g_totalPlayerCount = 0;
+var g_canvas;
+var gl;
+var g_clock;
+var g_socket;
+var g_players = {};  // all players
+var g_activePlayers = [];  // players currently playing
+var g_shotsById = {};
+var g_numPlayers = 0;
+var g_debug = false;
+var g_logGLCalls = false;
+var g_renderer;
+
+// g_debug = true;
+// g_logGLCalls = true;
+
+var g_entitySys;
+var g_queueMgr;
+var g_scoreMgr;
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function logTo(id, str) {
+  var c = $(id);
+  var d = document.createElement("div");
+  d.appendChild(document.createTextNode(str));
+  c.appendChild(d);
+}
+
+function log() {
+  var s = ""
+  for (var ii = 0; ii < arguments.length; ++ii) {
+    s += arguments[ii].toString();
+  }
+  logTo("console", s);
+}
+
+function ValidateNoneOfTheArgsAreUndefined(functionName, args) {
+  for (var ii = 0; ii < args.length; ++ii) {
+    if (args[ii] === undefined) {
+      tdl.error("undefined passed to gl." + functionName + "(" +
+                tdl.webgl.glFunctionArgsToString(functionName, args) + ")");
+    }
+  }
+}
+
+function Log(msg) {
+  if (g_logGLCalls) {
+    tdl.log(msg);
+  }
+}
+
+function LogGLCall(functionName, args) {
+  if (g_logGLCalls) {
+    ValidateNoneOfTheArgsAreUndefined(functionName, args)
+    tdl.log("gl." + functionName + "(" +
+                tdl.webgl.glFunctionArgsToString(functionName, args) + ")");
+  }
+}
+
+function connect(server, port) {
+  if (!window.io) {
+    g_socket = {
+      send: function() { }
+    };
+    return;
+  }
+  var server = window.location.href.match(/\/\/(.*?)\//)[1];
+  var port = 8080;
+  g_socket = new io.Socket(null, {
+      port: port,
+      transports: ['websocket']});
+  g_socket.connect();
+  g_socket.on('message', function(obj) {
+    processMessage(obj);
+  });
+}
+
+function sendCmd(cmd, id, data) {
+  g_socket.send({
+    cmd: cmd,
+    id: id,
+    data: data
+  });
+}
+
+function processMessage(msg) {
+  switch (msg.cmd) {
+  case 'start':
+    startPlayer(msg.id);
+    break;
+  case 'update':
+    updatePlayer(msg.id, msg.data);
+    break;
+  case 'remove':
+    removePlayer(msg.id);
+    break;
+  }
+}
+
+function startPlayer(id) {
+  if (g_players[id])
+    return;
+
+  var x = Math.random() * g_canvas.width;
+  var y = Math.random() * g_canvas.height;
+  var direction = Math.random() * Math.PI * 2;
+
+  var player = new Player(x, y, direction, id);
+  g_players[id] = player;
+  ++g_numPlayers;
+
+  return player;
+}
+
+function getPlayer(id) {
+  var player = g_players[id];
+  return player;
+}
+
+function removePlayer(id) {
+  if (g_players[id]) {
+    g_players[id].removeFromGame();
+    delete g_players[id];
+    --g_numPlayers;
+  }
+}
+
+function updatePlayer(id, msg) {
+  var player = getPlayer(id);
+  if (!player)
+    return;
+  player.update(msg);
+}
+
+function makeColor(count) {
+  var color = [
+    (count * 0.31) % 1,
+    (count * 5.73) % 1,
+    (count * 7.89) % 1,
+    1,
+  ];
+  var canvasColor = [];
+  var ci = count % 3;
+  for (var ii = 0; ii < 3; ++ii) {
+    var ndx = (ii + ci) % 3;
+    var mix = (ii == 0) ? 0.2 : 0.6;
+    var max = (ii == 0) ? 1 : 0.6;
+    color[ndx] = color[ndx] * mix + (1 - mix) * max;
+    canvasColor[ndx] = Math.floor(color[ndx] * 255);
+  }
+  return {glColor: color, canvasColor: "rgb(" + canvasColor.join(",") + ")"};
+}
+
+function CanvasRenderer(canvas) {
+  this.canvas = canvas;
+  this.ctx = canvas.getContext("2d");
+
+  this.shotColors = [
+    "#800000",
+    "#ff0000",
+    "#ff8000",
+    "#ffff00",
+    "#ffffff",
+    "#ffff00",
+    "#ff0000",
+    "#ff8000"
+  ];
+}
+
+CanvasRenderer.prototype.resize = function() {
+  if (this.canvas.width != this.canvas.clientWidth ||
+      this.canvas.height != this.canvas.clientHeight) {
+    this.canvas.width = this.canvas.clientWidth;
+    this.canvas.height = this.canvas.clientHeight;
+    //tdl.log("new width:", this.canvas.width);
+    //tdl.log("new height:", this.canvas.height);
+  }
+};
+
+CanvasRenderer.prototype.begin = function() {
+  this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+};
+
+CanvasRenderer.prototype.end = function() {
+};
+
+function drawShip(ctx, x, y, direction, color) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(direction);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.closePath();
+  ctx.moveTo(0, 15);
+  ctx.lineTo(15, -15);
+  ctx.lineTo(0, -10);
+  ctx.lineTo(-15, -15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+CanvasRenderer.prototype.drawShip = function(position, direction, color) {
+  drawShip(this.ctx, position[0], position[1], direction, color.canvasColor);
+};
+
+CanvasRenderer.prototype.drawShot = function(position, count) {
+  var ctx = this.ctx;
+  ctx.save();
+  ctx.translate(position[0], position[1]);
+  ctx.fillStyle = this.shotColors[count % this.shotColors.length];
+  ctx.beginPath();
+  ctx.closePath();
+  ctx.moveTo(0, 5);
+  ctx.lineTo(5, 0);
+  ctx.lineTo(0, -5);
+  ctx.lineTo(-5, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+};
+
+CanvasRenderer.prototype.startExplosion = function(position, direction, color) {
+};
+
+function WebGLRenderer(canvas) {
+  var math = tdl.math;
+  var fast = tdl.fast;
+  this.canvas = canvas;
+
+  gl = tdl.webgl.setupWebGL(canvas);
+  if (!gl) {
+    return false;
+  }
+  if (g_debug) {
+    gl = tdl.webgl.makeDebugContext(gl, undefined, LogGLCall);
+  }
+
+  this.gl = gl;
+  this.screenDimensions = [2 / this.canvas.width, 2 / this.canvas.height];
+  this.resize();
+  var width = this.canvas.width;
+  var height = this.canvas.height;
+
+  function makeShip() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  15,
+         15, -15,
+          0, -10,
+        -15, -15
+      ]),
+      indices: new tdl.primitives.AttribBuffer(3, [
+        0, 1, 2, 0, 2, 3
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeShot() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  5,
+          5,  0,
+          0, -5,
+         -5, -0
+      ]),
+      indices: new tdl.primitives.AttribBuffer(3, [
+        0, 1, 2, 0, 2, 3
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makePersist(newTexture, oldTexture) {
+    var textures = {
+        newRender: newTexture,
+        oldRender: oldTexture
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        'persistVertexShader',
+        'persistFragmentShader');
+    var arrays = tdl.primitives.createPlane(2, 2, 1, 1);
+    tdl.primitives.reorient(arrays,
+        [1, 0, 0, 0,
+         0, 0,-1, 0,
+         0, 1, 0, 0,
+         0, 0, 0, 1]);
+    delete arrays.normal;
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeLastPlane(texture) {
+    var textures = {
+        texture: texture
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        'mainVertexShader',
+        'mainFragmentShader');
+    var arrays = tdl.primitives.createPlane(2, 2, 1, 1);
+    tdl.primitives.reorient(arrays,
+        [1, 0, 0, 0,
+         0, 0,-1, 0,
+         0, 1, 0, 0,
+         0, 0, 0, 1]);
+    delete arrays.normal;
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function setupFlame(particleSystem) {
+    var emitter = particleSystem.createParticleEmitter();
+    emitter.setTranslation(0, 0, 0);
+    emitter.setState(tdl.particles.ParticleStateIds.ADD);
+    emitter.setColorRamp(
+        [1, 1, 0, 1,
+         1, 0, 0, 1,
+         0, 0, 0, 1,
+         0, 0, 0, 0.5,
+         0, 0, 0, 0]);
+    emitter.setParameters({
+        numParticles: 20,
+        lifeTime: 2,
+        timeRange: 2,
+        startSize: 0.5,
+        endSize: 0.9,
+        velocity:[0, 0.60, 0], velocityRange: [0.15, 0.15, 0.15],
+        worldAcceleration: [0, -0.20, 0],
+        spinSpeedRange: 4});
+  }
+
+  function setupStars(particleSystem) {
+    var emitter = particleSystem.createParticleEmitter();
+    emitter.setTranslation(0, 0, 0);
+    emitter.setState(tdl.particles.ParticleStateIds.ADD);
+    emitter.setColorRamp(
+        [0, 0, 1, 0.5,
+         0, 0, 1, 1,
+         0.5, 0.5, 1, 1,
+         1, 1, 1, 1,
+         0.5, 0.5, 1, 1,
+         0, 0, 1, 1,
+         0, 0, 1, 0.5,
+         0, 0, 0, 0]);
+    emitter.setParameters({
+        numParticles: 1000,
+        lifeTime: 5,
+        lifeTimeRange: 5,
+        timeRange: 5,
+        startSize: 10,
+        startSizeRange: 10,
+        endSize: 10,
+        position: [width / 2, height / 2, 0],
+        positionRange: [width / 2 + 40, height / 2 + 40, 0],
+        velocity: [-20, 10, 0],
+        //colorMultRange: [1, 1, 1, 0],
+      });
+  }
+
+  function setupPoofs(particleSystem, maxPoofs) {
+    var poofs = [];
+    var emitter = particleSystem.createParticleEmitter();
+    emitter.setState(tdl.particles.ParticleStateIds.ADD);
+    emitter.setColorRamp(
+        [1, 1, 1, 1,
+         1, 1, 0, 1,
+         1, 0, 0, 1,
+         1, 1, 1, 0.5,
+         1, 1, 1, 0]);
+    emitter.setParameters({
+        numParticles: 60,
+        lifeTime: 1.5,
+        startTime: 0,
+        startSize: 20.0,
+        endSize: 40.0,
+        spinSpeedRange: 10},
+        function(index, parameters) {
+            var speed = Math.random() * 40 + 40;
+            var angle = Math.random() * 2 * Math.PI;
+            parameters.velocity = math.matrix4.transformPoint(
+                math.matrix4.rotationZ(angle), [speed, 0, 0]);
+            parameters.acceleration = math.mulVectorVector(
+                parameters.velocity, [speed * -0.001, speed * -0.001, 0]);
+        });
+    // make 3 poofs one shots
+    for (var ii = 0; ii < maxPoofs; ++ii) {
+       poofs[ii] = emitter.createOneShot();
+    }
+    return poofs;
+  }
+
+  this.ship = makeShip();
+  this.shot = makeShot();
+
+  this.shotColors = [
+    new Float32Array([0.5, 0.0, 0.0, 1]),
+    new Float32Array([1.0, 0.0, 0.0, 1]),
+    new Float32Array([1.0, 0.5, 0.0, 1]),
+    new Float32Array([1.0, 1.0, 0.0, 1]),
+    new Float32Array([1.0, 1.0, 1.0, 1]),
+    new Float32Array([1.0, 1.0, 0.0, 1]),
+    new Float32Array([1.0, 0.0, 0.0, 1]),
+    new Float32Array([1.0, 0.5, 0.0, 1])
+  ];
+
+  this.matrix = new Float32Array([1,0,0,0,1,0,0,0,1]);
+  this.constUniforms = {
+    screenDimensions: this.screenDimensions
+  };
+  this.uniforms = {
+    matrix: this.matrix
+  };
+
+  this.maxPoofs = 20;
+  this.particleSystem = new tdl.particles.ParticleSystem(
+      gl, null, tdl.math.pseudoRandom);
+  setupStars(this.particleSystem);
+  this.poofs = setupPoofs(this.particleSystem, this.maxPoofs);
+  this.poofIndex = 0;
+  this.world = fast.matrix4.identity(new Float32Array(16));
+  this.view = fast.matrix4.identity(new Float32Array(16));
+  //this.projection = fast.matrix4.identity(new Float32Array(16));
+  this.viewProjection = fast.matrix4.identity(new Float32Array(16));
+  this.viewInverse = fast.matrix4.identity(new Float32Array(16));
+
+  this.baseFBO = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height, true);
+  this.persistentFBO1 = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height);
+  this.persistentFBO2 = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height);
+
+  this.persistPlane = makePersist(
+      this.baseFBO.texture, this.persistentFBO1.texture);
+
+  this.lastPlane = makeLastPlane(this.persistentFBO2.texture);
+}
+
+WebGLRenderer.prototype.resize = function() {
+  var width = this.canvas.clientWidth;
+  var height = this.canvas.clientHeight;
+  if (this.canvas.width != width ||
+      this.canvas.height != height) {
+    this.canvas.width = width;
+    this.canvas.height = height;
+    //tdl.log("new width:", width);
+    //tdl.log("new height:", height);
+    this.screenDimensions[0] = 2 / width;
+    this.screenDimensions[1] = 2 / height;
+    gl.viewport(0, 0, width, height);
+    this.projection = [
+      2 / width, 0, 0, 0,
+      0, -2 / height, 0, 0,
+      0, 0, 1, 0,
+      -1 + 1 / width, 1 - 1 / height, 0, 1];
+
+  }
+};
+
+WebGLRenderer.prototype.begin = function() {
+  this.lastModel = null;
+  this.screenDimensions[0] = 2 / this.canvas.width;
+  this.screenDimensions[1] = 2 / this.canvas.height;
+  this.baseFBO.bind();
+  gl.colorMask(true, true, true, false);
+  gl.depthMask(true);
+  gl.clearColor(0,0,0,0);
+  gl.clearDepth(1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+};
+
+WebGLRenderer.prototype.end = function() {
+  //this.particleSystem.draw(this.viewProjection, this.world, this.viewInverse);
+  this.particleSystem.draw(this.projection, this.world, this.viewInverse);
+  gl.disable(gl.BLEND);
+  gl.disable(gl.DEPTH_TEST);
+  this.baseFBO.unbind();
+
+  // blend base with persist1 into persist2
+  this.persistentFBO2.bind();
+  this.persistPlane.drawPrep();
+  this.persistPlane.draw({oldRender: this.persistentFBO1.texture});
+  this.persistentFBO2.unbind();
+
+  // draw on the backbuffer.
+  this.lastPlane.drawPrep();
+  this.lastPlane.draw({texture: this.persistentFBO2.texture});
+
+  // swap persist FBOs.
+  var temp = this.persistentFBO1;
+  this.persistentFBO1 = this.persistentFBO2;
+  this.persistentFBO2 = temp;
+};
+
+WebGLRenderer.prototype.drawShip = function(position, direction, color) {
+  if (this.lastModel != this.ship) {
+    this.ship.drawPrep(this.constUniforms);
+    this.lastModel = this.ship;
+  }
+  var c = Math.cos(direction);
+  var s = Math.sin(direction);
+
+  var m = this.matrix;
+  m[0] = c;
+  m[1] = s;
+  m[3] = -s;
+  m[4] = c;
+  m[6] = position[0];
+  m[7] = position[1];
+
+  this.uniforms.color = color.glColor;
+  this.ship.draw(this.uniforms);
+};
+
+WebGLRenderer.prototype.drawShot = function(position, count) {
+  if (this.lastModel != this.shot) {
+    this.shot.drawPrep(this.constUniforms);
+    this.lastModel = this.shot;
+  }
+
+  var c = Math.cos(0);
+  var s = Math.sin(0);
+
+  var m = this.matrix;
+  m[0] = c;
+  m[1] = s;
+  m[3] = -s;
+  m[4] = c;
+  m[6] = position[0];
+  m[7] = position[1];
+  this.uniforms.color = this.shotColors[count % this.shotColors.length];
+
+  this.shot.draw(this.uniforms);
+};
+
+WebGLRenderer.prototype.startExplosion = function(position, direction, color) {
+  var _tp_ = tdl.fast.matrix4.identity(new Float32Array(16));
+  _tp_[12] = position[0];
+  _tp_[13] = position[1];
+  // We have multiple poofs because if you only have one and it is still going
+  // when you trigger it a second time it will immediately start over.
+  this.poofs[this.poofIndex++].trigger(_tp_);
+  if (this.poofIndex == this.maxPoofs) {
+    this.poofIndex = 0;
+  }
+};
+
+/**
+ * Player represnt a player in the game.
+ * @constructor
+ */
+function Player(x, y, direction, clientId) {
+  g_entitySys.addEntity(this);
+  ++g_playerCount;
+  this.clientId = clientId;
+  this.position = [x, y];
+  this.hp = 3;
+  this.color = makeColor(g_playerCount);
+  sendCmd("client", clientId, {
+    cmd: 'setColor',
+    color: this.color.canvasColor
+  });
+
+  this.playerName = (++g_totalPlayerCount).toString();
+  this.turn = 0;
+  this.targetDir = -1;
+  this.direction = direction;
+  this.fire = false;
+  this.vel = 200;
+  this.turnVel = Math.PI * 0.5;
+  this.shots = [];
+  this.maxShots = 3;
+  this.shotDuration = 3;
+  this.shootTimer = 0;
+  this.score = 0;
+  this.timer = 0;
+  if (window.io) {
+    this.addToQueue();
+  } else {
+    this.setState('fly');
+    g_activePlayers.push(this);
+  }
+}
+
+Player.prototype.timesUp = function(elapsedTime) {
+  this.timer -= elapsedTime;
+  return this.timer <= 0;
+};
+
+Player.prototype.addToQueue = function() {
+  g_queueMgr.addToQueue(this);
+  this.setState('queued');
+}
+
+Player.prototype.setState = function(state) {
+  //tdl.log(this.id, state);
+  this.state = state;
+  this.process = this["state_" + state];
+}
+
+Player.prototype.shoot = function() {
+  if (this.shots.length >= this.maxShots) {
+    this.removeShot(this.shots[0]);
+  }
+
+  audio.play_sound('fire');
+  var shot = new Shot(
+    this.position[0] + -Math.sin(this.direction) * 15,
+    this.position[1] +  Math.cos(this.direction) * 15,
+    this.direction, this);
+  g_shotsById[shot.id] = shot;
+  this.shots.push(shot);
+};
+
+Player.prototype.removeShot = function(shot) {
+  var ndx = this.shots.indexOf(shot);
+  this.shots.splice(ndx, 1);
+  delete g_shotsById[shot.id];
+  g_entitySys.deleteEntityById(shot.id);
+};
+
+Player.prototype.removeFromActive = function() {
+  for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+    if (g_activePlayers[ii].id == this.id) {
+      g_activePlayers.splice(ii, 1);
+      return;
+    }
+  }
+};
+
+Player.prototype.removeFromGame = function() {
+  g_queueMgr.removeFromQueue(this);
+  this.removeFromActive();
+  while (this.shots.length) {
+    this.removeShot(this.shots[0]);
+  }
+  g_entitySys.deleteEntity(this);
+}
+
+Player.prototype.update = function(msg) {
+  switch (msg.cmd) {
+    case 'turn':
+      this.turn = msg.turn;
+      this.targetDir = -1;
+      break;
+    case 'target':
+      this.targetDir = msg.target;
+      this.turn = 0;
+      break;
+    case 'fire':
+      this.fire = msg.fire;
+      if (this.fire == 0)
+        this.shootTimer = 0;
+      break;
+  }
+};
+
+Player.prototype.state_queued = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
+};
+
+Player.prototype.countdown = function() {
+  this.timer = 3;
+  this.setState('countdown');
+};
+
+Player.prototype.state_countdown = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
+  if (this.timesUp(elapsedTime)) {
+    this.timer = 0.5;
+    this.setState('launch');
+    audio.play_sound('launch');
+  }
+};
+
+Player.prototype.state_launch = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
+  if (this.timesUp(elapsedTime)) {
+    g_activePlayers.push(this);
+    this.setState('fly');
+    g_queueMgr.removeFromQueue(this);
+  }
+};
+
+Player.prototype.updateDirection = function(elapsedTime) {
+  // turn player based on this.turn (-1, 0, 1)
+  this.direction += this.turnVel * this.turn * elapsedTime;
+  this.direction = this.direction % (Math.PI * 2);
+  // turn player based on target
+  if (this.targetDir >= 0) {
+    var targetDir = this.targetDir;
+    var delta = targetDir - this.direction;
+    if (Math.abs(delta) > Math.PI) {
+      if (delta > 0) {
+        targetDir -= Math.PI * 2;
+      } else {
+        targetDir += Math.PI * 2;
+      }
+    }
+    delta = targetDir - this.direction;
+    var turn = delta > 0 ? 1 : -1;
+    var turnVel = Math.min(Math.abs(delta), this.turnVel);
+    this.direction += turnVel * turn * elapsedTime;
+    this.direction = this.direction % (Math.PI * 2);
+  }
+};
+
+Player.prototype.state_fly = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
+  var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
+  var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
+  updatePos(this.position, dx, dy);
+  this.shootTimer = Math.max(this.shootTimer - elapsedTime, 0);
+  if (this.fire && this.shootTimer <= 0) {
+    this.shoot();
+    this.shootTimer = this.maxShots / this.shotDuration;
+  }
+};
+
+Player.prototype.die = function(killer) {
+  audio.play_sound('explosion');
+  this.timer = 2;
+  this.setState('die');
+  this.removeFromActive();
+  g_renderer.startExplosion(
+      this.position,
+      this.direction,
+      this.color);
+  killer.score++;
+};
+
+Player.prototype.state_die = function(elapsedTime) {
+  if (this.timesUp(elapsedTime)) {
+    this.addToQueue();
+  }
+};
+
+Player.prototype.collide = function(x, y, radius) {
+  // TODO: need to put colliables on their own list or something
+  // so queued players are not being checked.
+  if (this.state != 'fly') {
+    return false
+  }
+  var dx = x - this.position[0];
+  var dy = y - this.position[1];
+  var distSq = dx * dx + dy * dy;
+  var radius = 10 + radius;
+  return distSq < radius * radius;
+};
+
+Player.prototype.draw = function(renderer) {
+  switch (this.state) {
+    case 'fly':
+      renderer.drawShip(this.position, this.direction, this.color);
+      return;
+  }
+};
+
+/**
+ * A shot.
+ * @constructor
+ */
+function Shot(x, y, direction, owner) {
+  this.owner = owner;
+  this.position = [x, y];
+  this.vel = 300;
+  this.duration = owner.shotDuration;
+  this.direction = direction;
+  this.drawCount = 0;
+
+  this.matrix = new Float32Array([1,0,0,0,1,0,0,0,1]);
+  this.uniforms = {
+    matrix: this.matrix
+  };
+
+  g_entitySys.addEntity(this);
+}
+
+Shot.prototype.remove = function() {
+  this.owner.removeShot(this);
+};
+
+Shot.prototype.process = function(elapsedTime) {
+  this.duration -= elapsedTime;
+  if (this.duration <= 0) {
+    this.remove();
+  } else {
+    var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
+    var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
+    updatePos(this.position, dx, dy);
+
+    var hit = false;
+    for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+      var player = g_activePlayers[ii];
+      if (player.id != this.owner.id) {
+        if (player.collide(this.position[0], this.position[1], 3)) {
+          hit = true;
+          player.die(this.owner);
+        }
+      }
+    }
+    if (hit) {
+      this.remove();
+    }
+  }
+};
+
+Shot.prototype.draw = function(renderer) {
+  renderer.drawShot(this.position, ++this.drawCount);
+};
+
+function updatePos(pos, dx, dy) {
+  var x = pos[0] + dx;
+  if (x < 0) {
+    x = g_canvas.width - 1;
+  } else if (x >= g_canvas.width) {
+    x = 0;
+  }
+
+  var y = pos[1] + dy;
+  if (y < 0) {
+    y = g_canvas.height - 1;
+  } else if (y >= g_canvas.height) {
+    y = 0;
+  }
+
+  pos[0] = x;
+  pos[1] = y;
+}
+
+/**
+ * Manages the Queue of players waiting.
+ */
+function QueueManager() {
+  this.launching_ = [];
+  this.queue_ = [];
+  this.timer_ = 0;
+
+  this.element_ = $("queue");
+  this.elements_ = [];
+
+  var canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  var ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#008";
+  ctx.fillRect(0, 0, 32, 32);
+  ctx.globalCompositeOperation = "copy";
+  drawShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
+  this.shipURL = canvas.toDataURL();
+
+
+//  this.rowHeight_ = 40;
+//  this.canvas_ = $("queue-canvas");
+//  this.ctx_ = this.canvas_.getContext("2d");
+//  this.resize();
+};
+
+//QueueManager.prototype.resize = function() {
+//  if (this.canvas_.width != this.canvas_.clientWidth ||
+//      this.canvas_.height != this.canvas_.clientHeight) {
+//    this.canvas_.width = this.canvas_.clientWidth;
+//    this.canvas_.height = this.canvas_.clientHeight;
+//    tdl.log("newq width:", this.canvas_.width);
+//    tdl.log("newq height:", this.canvas_.height);
+//  }
+//};
+//
+//QueueManager.prototype.draw = function() {
+//  this.resize();
+//  var ctx = this.ctx_;
+//  var canvas = this.canvas_;
+//  var height = this.canvas_.height;
+//  ctx.clearRect(0, 0, this.canvas_.width, this.canvas_.height);
+//  // draw launching players
+//  var y = 0;
+//  var count = 0;
+//  for (var ii = 0; y < height && ii < this.launching_.length; ++ii) {
+//    var player = this.launching_[ii];
+//    this.drawPlayer(player, y, count, true);
+//    y += this.rowHeight_;
+//    ++count;
+//  }
+//  // draw queued players.
+//  for (var ii = 0; y < height && ii < this.queue_.length; ++ii) {
+//    var player = this.queue_[ii];
+//    this.drawPlayer(player, y, count, false);
+//    y += this.rowHeight_;
+//    ++count;
+//  }
+//};
+//
+//QueueManager.prototype.drawPlayer = function(player, y, count, launching) {
+//  var ctx = this.ctx_;
+//  var canvas = this.canvas_;
+//  var width = this.canvas_.width;
+//  ctx.fillStyle = count % 2 ? "#006" : "#00A";
+//  var color = player.color.canvasColor;
+//  if (launching) {
+//    var cl = Math.floor(player.timer * 16);
+//    switch (cl % 4) {
+//    case 0:
+//      color = "#f00";
+//      break;
+//    case 2:
+//      color = "#ff0";
+//    }
+//  }
+//  ctx.fillRect(0, 0, width, this.rowHeight_);
+//  drawShip(
+//      ctx,
+//      this.rowHeight_ / 2,
+//      y + this.rowHeight_ / 2,
+//      player.direction,
+//      color);
+//};
+
+QueueManager.prototype.draw = function() {
+  this.setElements_(0, this.launching_, true);
+  this.setElements_(this.launching_.length, this.queue_, false);
+  for (var ii = this.launching_.length + this.queue_.length;
+       ii < this.elements_.length; ++ii) {
+    var element = this.elements_[ii];
+    element.line.style.display = "none";
+  }
+};
+
+QueueManager.prototype.getElement_ = function(index) {
+  var element = this.elements_[index];
+  if (!element) {
+    line = document.createElement("div");
+    line.style.position = "relative";
+    line.style.height = "40px";
+    line.style.display = "block";
+    //line.style.verticalAlign = "middle";
+    var span = document.createElement("div");
+    span.style.width = "32px";
+    span.style.height = "32px";
+    span.style.position = "absolute";
+    span.style.top = "0px";
+    span.style.left = "0px";
+    var img = document.createElement("img");
+    img.src = this.shipURL;
+    img.style.zIndex = 5;
+    img.style.position = "absolute";
+    img.style.top = "0px";
+    img.style.left = "0px";
+    var name = document.createElement("div");
+    name.style.position = "absolute";
+    name.style.top = "4px";
+    name.style.left = "40px";
+    name.style.color = "yellow";
+    name.style.fontFamily = "sans-serif";
+    name.style.fontSize = "24px";
+    line.appendChild(span);
+    line.appendChild(img);
+    line.appendChild(name);
+    this.element_.appendChild(line);
+    var element = {
+      line: line,
+      span: span,
+      img: img,
+      name: name
+    };
+    this.elements_.push(element);
+  }
+  return element;
+};
+
+QueueManager.prototype.setElements_ = function(index, players, launching) {
+  for (var ii = 0; ii < players.length; ++ii) {
+    var player = players[ii];
+    var element = this.getElement_(index + ii);
+    element.line.style.display = "block";
+    element.name.innerHTML = player.playerName;
+    element.span.style.backgroundColor = player.color.canvasColor;
+    if (launching) {
+      element.name.color = "#f00";
+    } else {
+      element.name.color = "#ff0";
+    }
+  }
+};
+
+
+QueueManager.prototype.addToQueue = function(player) {
+  this.queue_.push(player);
+  this.draw();
+};
+
+QueueManager.prototype.removeFromQueue = function(player) {
+  for (var ii = 0; ii < this.queue_.length; ++ii) {
+    if (this.queue_[ii].id == player.id) {
+      this.queue_.splice(ii, 1);
+      this.draw();
+      return;
+    }
+  }
+  for (var ii = 0; ii < this.launching_.length; ++ii) {
+    if (this.launching_[ii].id == player.id) {
+      this.launching_.splice(ii, 1);
+      this.draw();
+      return;
+    }
+  }
+};
+
+QueueManager.prototype.process = function(elapsedTime) {
+  if (this.timer_ > 0) {
+    this.timer_ -= elapsedTime;
+  } else {
+    if (this.queue_.length > 0 &&
+        g_activePlayers.length + this.launching_.length < g_maxActivePlayers) {
+      var player = this.queue_.shift()
+      player.countdown();
+      this.launching_.push(player);
+      this.timer_ = 1;  // don't start another for at least 1 second.
+      this.draw();
+    }
+  }
+};
+
+/**
+ * Manages the high score list.
+ */
+
+function ScoreManager() {
+  this.element_ = $("highscore");
+  this.maxScores_ = 10;
+  this.orderedPlayers_ = [];
+  this.elements_ = [];
+
+  for (var ii = 0; ii < this.maxScores_; ++ii) {
+    var element = document.createElement("div");
+    this.element_.appendChild(element);
+    this.elements_.push(element);
+  }
+}
+
+ScoreManager.prototype.calculateScores = function() {
+  this.orderedPlayers_ = [];
+  for (var id in g_players)
+    this.orderedPlayers_.push(g_players[id]);
+
+  this.orderedPlayers_.sort(function(a, b) {
+    if (a.score > b.score)
+      return -1;
+    else if (a.score < b.score)
+      return 1;
+    else if (a.id < b.id)
+      return -1;
+    else
+      return 1;
+  });
+
+  if (this.orderedPlayers_.length > this.maxScores_)
+    this.orderedPlayers_.length = this.maxScores_;
+};
+
+ScoreManager.prototype.drawScores = function() {
+  for (var ii = 0; ii < this.orderedPlayers_.length; ++ii) {
+    var player = this.orderedPlayers_[ii];
+    this.elements_[ii].innerHTML = player.playerName + ": " + player.score;
+  }
+  for (var ii = this.orderedPlayers_.length; ii < this.maxScores_; ++ii) {
+    this.elements_[ii].innerHTML = "";
+  }
+};
+
+ScoreManager.prototype.update = function() {
+  this.calculateScores();
+  this.drawScores();
+};
+
+/**
+ * Processes and Draws all the entities.
+ * An entity is currently losely defined as any object that has
+ * a process and a draw function.
+ */
+function EntitySystem() {
+  this.entities_ = {};
+  this.numEntities_ = 0;
+  this.nextId_ = 1;
+  this.removeEntities_ = [];
+}
+
+EntitySystem.prototype.addEntity = function(entity) {
+  var id = this.nextId_++;
+  entity.id = id;
+  this.entities_[id] = entity;
+  ++this.numEntities_;
+};
+
+EntitySystem.prototype.deleteEntity = function(entity) {
+  this.deleteEntityById(entity.id);
+};
+
+EntitySystem.prototype.deleteEntityById = function(id) {
+  this.removeEntities_.push(id);
+};
+
+EntitySystem.prototype.processEntities = function(elapsedTime) {
+  for (var id in this.entities_) {
+    this.entities_[id].process(elapsedTime);
+  }
+  while (this.removeEntities_.length) {
+    delete this.entities_[this.removeEntities_.pop()];
+    --this.numEntities_;
+  }
+};
+
+function main() {
+  g_canvas = $("canvas");
+  //g_renderer = new CanvasRenderer(g_canvas);
+  g_renderer = new WebGLRenderer(g_canvas);
+
+  connect();
+  sendCmd("server");
+
+  audio.init();
+  g_entitySys = new EntitySystem();
+  g_scoreMgr = new ScoreManager();
+  g_queueMgr = new QueueManager();
+
+  // Add a 2 players if there is no communication
+  if (!window.io) {
+    startLocalPlayers();
+  }
+
+  var then = (new Date()).getTime() * 0.001;
+  render();
+
+  function render() {
+    var now = (new Date()).getTime() * 0.001;
+    var elapsedTime = now - then;
+    then = now;
+    tdl.webgl.requestAnimationFrame(render, g_canvas);
+
+    g_queueMgr.process(elapsedTime);
+    g_entitySys.processEntities(elapsedTime);
+    g_scoreMgr.update();
+
+    g_renderer.resize();
+    g_renderer.begin();
+
+    for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+      g_activePlayers[ii].draw(g_renderer);
+    }
+    for (var shotId in g_shotsById) {
+      g_shotsById[shotId].draw(g_renderer);
+    }
+
+    //g_queueMgr.draw();
+
+    g_renderer.end();
+
+    // turn off logging after 1 frame.
+    g_logGLCalls = false;
+  }
+}
+
+function startLocalPlayers() {
+  var player1 = startPlayer(1);
+  var player2 = startPlayer(2);
+  var g_left = false;
+  var g_right = false;
+  var g_fire = false;
+  var g_keyState = { };
+  var g_oldKeyState = { };
+
+  // simulate clientside sendCmd
+  function sendCmd(cmd, data) {
+    player1.update(data);
+  }
+
+  function handleKeyDown(keyCode, state) {
+    switch(event.keyCode) {
+    case 37: // left
+      if (!g_left) {
+        g_left = true;
+        sendCmd("update", {
+            cmd: 'turn',
+            turn: -1
+        });
+      }
+      break;
+    case 39: // right
+      if (!g_right) {
+        g_right = true;
+        sendCmd("update", {
+            cmd: 'turn',
+            turn: 1
+        });
+      }
+      break;
+    case 90: // z
+      if (!g_fire) {
+        g_fire = true;
+        sendCmd("update", {
+            cmd: 'fire',
+            fire: 1
+        });
+      }
+      break;
+    }
+  }
+
+  function handleKeyUp(keyCode, state) {
+    switch(event.keyCode) {
+    case 37: // left
+      g_left = false;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: (g_right) ? 1 : 0
+      });
+      break;
+    case 39: // right
+      g_right = false;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: (g_left) ? -1 : 0
+      });
+      break;
+    case 90: // z
+      g_fire = false;
+      sendCmd("update", {
+          cmd: 'fire',
+          fire: 0
+      });
+      break;
+    }
+  }
+
+  function updateKey(keyCode, state) {
+    g_keyState[keyCode] = state;
+    if (g_oldKeyState != g_keyState) {
+      g_oldKeyState = state;
+      if (state) {
+        handleKeyDown(keyCode);
+      } else {
+        handleKeyUp(keyCode);
+      }
+    }
+  }
+
+  function keyUp(event) {
+    updateKey(event.keyCode, false);
+  }
+
+  function keyDown(event) {
+    updateKey(event.keyCode, true);
+  }
+
+  window.addEventListener("keyup", keyUp, false);
+  window.addEventListener("keydown", keyDown, false);
+}
+</script>
+</head>
+<body>
+<div id="outer">
+  <canvas id="canvas"></canvas>
+  <div id="status">
+    <div id="highscores-outer">
+      <div class="headline">High Score</div>
+      <div id="highscore"></div>
+    </div>
+    <div id="queue-outer">
+      <div class="headline">Waiting</div>
+      <div id="queue"><!--<canvas id="queue-canvas"></canvas>--></div>
+    </div>
+  </div>
+</div>
+<script id="screenVertexShader" type="whatever">
+uniform mat3 matrix;
+uniform vec2 screenDimensions;
+attribute vec2 position;
+
+void main() {
+  vec3 pos = vec3(-1, -1, 0) + matrix * vec3(position, 1) * vec3(screenDimensions, 0);
+  gl_Position = vec4(pos.x, -pos.y, 0, 1);
+}
+</script>
+<script id="screenFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform vec4 color;
+void main() {
+  gl_FragColor = color;
+}
+</script>
+<script id="persistVertexShader" type="whatever">
+attribute vec2 position;
+attribute vec2 texCoord;
+varying vec2 v_texCoord;
+void main() {
+  gl_Position = vec4(position, 0, 1);
+  v_texCoord = texCoord;
+}
+</script>
+<script id="persistFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform sampler2D newRender;
+uniform sampler2D oldRender;
+varying vec2 v_texCoord;
+void main() {
+  vec4 newColor = texture2D(newRender, v_texCoord);
+  vec4 oldColor = texture2D(oldRender, v_texCoord);
+
+  gl_FragColor =
+    vec4(
+      mix(oldColor.g * 0.8, newColor.r, length(newColor.xyz)),
+      mix(oldColor.b * 0.8, newColor.g, length(newColor.xyz)),
+      mix(oldColor.r * 0.8, newColor.b, length(newColor.xyz)),
+      1);
+}
+</script>
+<script id="mainVertexShader" type="whatever">
+attribute vec2 position;
+attribute vec2 texCoord;
+varying vec2 v_texCoord;
+void main() {
+  gl_Position = vec4(position, 0, 1);
+  v_texCoord = texCoord;
+}
+</script>
+<script id="mainFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform sampler2D texture;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(texture, v_texCoord);
+  gl_FragColor = color;
+}
+</script>
+</body>
+</html>
+
