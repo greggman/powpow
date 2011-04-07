@@ -2,16 +2,17 @@ tdl.provide('audio');
 
 // To play a sound, simply call audio.play_sound(id), where id is
 // one of the keys of the g_sound_files array, e.g. "damage".
+var gg;
 
 audio = (function() {
   var g_sound_files = {
     fire: {
       filename: "assets/fire.ogg",
-      samples: 16,
+      samples: 8,
     },
     explosion: {
       filename: "assets/explosion.ogg",
-      samples: 8,
+      samples: 6,
     },
     launch: {
       filename: "assets/launch.ogg",
@@ -43,6 +44,11 @@ audio = (function() {
         that.waiting_on_load--;
       }, false);
       audio.src = filename;
+      audio.onerror = function(filename) {
+        return function(e) {
+          tdl.log("can't load ", filename);
+        }
+      }(filename);
       audio.load();
       this.audio[i] = audio;
     }

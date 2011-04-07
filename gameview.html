@@ -179,6 +179,9 @@ function startPlayer(id) {
 
   var player = new Player(x, y, direction, id);
   g_players[id] = player;
+  if (g_numPlayers == 0) {
+    audio.play_sound('play');
+  }
   ++g_numPlayers;
 
   return player;
@@ -194,6 +197,9 @@ function removePlayer(id) {
     g_players[id].removeFromGame();
     delete g_players[id];
     --g_numPlayers;
+    if (g_numPlayers == 0) {
+      audio.play_sound('gameover');
+    }
   }
 }
 
@@ -653,6 +659,8 @@ function Player(x, y, direction, clientId) {
   this.shootTimer = 0;
   this.score = 0;
   this.timer = 0;
+  this.launchDuration = 0.5;
+
   if (window.io) {
     this.addToQueue();
   } else {
@@ -746,8 +754,14 @@ Player.prototype.countdown = function() {
 Player.prototype.state_countdown = function(elapsedTime) {
   this.updateDirection(elapsedTime);
   if (this.timesUp(elapsedTime)) {
-    this.timer = 0.5;
+    this.position[0] = Math.random() * g_canvas.width;
+    this.position[1] = Math.random() * g_canvas.height;
+    this.direction = Math.random() * Math.PI * 2;
+
+    this.timer = this.launchDuration;
     this.setState('launch');
+    g_activePlayers.push(this);
+    g_queueMgr.removeFromQueue(this);
     audio.play_sound('launch');
   }
 };
@@ -755,9 +769,7 @@ Player.prototype.state_countdown = function(elapsedTime) {
 Player.prototype.state_launch = function(elapsedTime) {
   this.updateDirection(elapsedTime);
   if (this.timesUp(elapsedTime)) {
-    g_activePlayers.push(this);
     this.setState('fly');
-    g_queueMgr.removeFromQueue(this);
   }
 };
 
@@ -831,6 +843,16 @@ Player.prototype.draw = function(renderer) {
   switch (this.state) {
     case 'fly':
       renderer.drawShip(this.position, this.direction, this.color);
+      return;
+    case 'launch':
+      var sy = g_canvas.height / 2 + 20;
+      var sx = g_canvas.width + 20;
+      var t = this.timer / this.launchDuration;
+      renderer.drawShip(
+          [tdl.math.lerpScalar(this.position[0], sx, t),
+           tdl.math.lerpScalar(this.position[1], sy, t)],
+          tdl.math.lerpCircular(this.direction, Math.PI, t, Math.PI * 2),
+          this.color);
       return;
   }
 };
