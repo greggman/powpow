@@ -50,6 +50,7 @@ html, body {
 <script type="text/javascript" src="socket.io/socket.io.js"></script>
 <script type="text/javascript" src="tdl/base.js"></script>
 <script>
+tdl.require('audio');
 tdl.require('tdl.buffers');
 tdl.require('tdl.fast');
 tdl.require('tdl.framebuffers');
@@ -681,6 +682,7 @@ Player.prototype.shoot = function() {
     this.removeShot(this.shots[0]);
   }
 
+  audio.play_sound('fire');
   var shot = new Shot(
     this.position[0] + -Math.sin(this.direction) * 15,
     this.position[1] +  Math.cos(this.direction) * 15,
@@ -746,6 +748,7 @@ Player.prototype.state_countdown = function(elapsedTime) {
   if (this.timesUp(elapsedTime)) {
     this.timer = 0.5;
     this.setState('launch');
+    audio.play_sound('launch');
   }
 };
 
@@ -794,6 +797,7 @@ Player.prototype.state_fly = function(elapsedTime) {
 };
 
 Player.prototype.die = function(killer) {
+  audio.play_sound('explosion');
   this.timer = 2;
   this.setState('die');
   this.removeFromActive();
@@ -1192,6 +1196,7 @@ function main() {
   connect();
   sendCmd("server");
 
+  audio.init();
   g_entitySys = new EntitySystem();
   g_scoreMgr = new ScoreManager();
   g_queueMgr = new QueueManager();
