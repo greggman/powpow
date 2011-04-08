@@ -651,10 +651,6 @@ function Player(x, y, direction, clientId, opt_name) {
     this.playerName = opt_name;
   } else {
 		this.playerName = "Player" + (++g_totalPlayerCount);
-    sendCmd("client", clientId, {
-      cmd: 'setName',
-      name: this.playerName
-    });
   }
   this.turn = 0;
   this.targetDir = -1;
@@ -669,6 +665,11 @@ function Player(x, y, direction, clientId, opt_name) {
   this.score = 0;
   this.timer = 0;
   this.launchDuration = 0.5;
+
+  // If true the player is entering their name.
+  // Don't launch them if they are in the queue.
+  // TODO(gman): Implement this?
+	this.busy = false;
 
   if (window.io) {
     this.addToQueue();
@@ -749,8 +750,18 @@ Player.prototype.update = function(msg) {
         this.shootTimer = 0;
       break;
     case 'name':
-      this.playerName = msg.name;
-			g_updateStatus = true;
+      if (!msg.name) {
+        sendCmd("client", this.clientId, {
+          cmd: 'setName',
+          name: this.playerName
+        });
+      } else {
+        this.playerName = msg.name;
+        g_updateStatus = true;
+      }
+      break;
+    case 'busy':
+      this.busy = msg.busy;
       break;
   }
 };
@@ -1270,8 +1281,8 @@ function main() {
 
 		if (g_updateStatus) {
       g_updateStatus = false;
-			g_queueMsg.draw();
-			g_scoreMsg.drawScores();
+			g_queueMgr.draw();
+			g_scoreMgr.drawScores();
     }
 
     // turn off logging after 1 frame.
