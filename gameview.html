@@ -51,6 +51,17 @@ html, body {
   width: 100%;
   height: 100%;
 }
+#disconnected {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  width: 100%;
+  height: 100%;
+  display: none;
+  background-color: red;
+  text-align: center;
+  z-index: 1000
+}
 </style>
 <!-- Note: Socket IO is served from the socket io based server -->
 <script type="text/javascript" src="socket.io/socket.io.js"></script>
@@ -150,9 +161,28 @@ function connect(server, port) {
       port: port,
       transports: ['websocket']});
   g_socket.connect();
+  g_socket.on('connect', connected);
   g_socket.on('message', function(obj) {
     processMessage(obj);
   });
+  g_socket.on('disconnect', disconnected);
+}
+
+function connected() {
+  $('outer').style.display = "block";
+  $('disconnected').style.display = "none";
+}
+
+function disconnected() {
+  $('outer').style.display = "none";
+  $('disconnected').style.display = "block";
+  while (g_numPlayers > 0) {
+    for (var id in g_players) {
+      removePlayer(id);
+      break;
+    }
+  }
+  connect();
 }
 
 function sendCmd(cmd, id, data) {
@@ -1561,6 +1591,10 @@ function startLocalPlayers() {
       <div id="queue"><!--<canvas id="queue-canvas"></canvas>--></div>
     </div>
   </div>
+</div>
+<div id="disconnected">
+  <div class="instruction">Disconnected</div>
+  <div id="reload">...lost connection to server (T_T)...</div>
 </div>
 <script id="screenVertexShader" type="whatever">
 uniform mat3 matrix;
