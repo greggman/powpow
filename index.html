@@ -40,12 +40,18 @@ html, body {
   width: 100%;
   height: 100%;
   display: none;
+}
+#stcontrol {
   background: url(assets/arrows.png) no-repeat center;
 }
 #singleTouchControls .canvas {
   position relative;
   z-index: 4;
   border: 2px solid yellow;
+}
+#controlArea {
+  position: relative;
+  height: 90%;
 }
 #keyControls {
   position: absolute;
@@ -65,6 +71,9 @@ html, body {
   background-color: rgba(255, 255, 255, 0.2);
   display: table-cell;
 }
+#tcmove.move, #tcfire.fire {
+  width: 100%
+}
 .fire {
   float: right;
   width: 50%;
@@ -73,28 +82,31 @@ html, body {
   color: white;
   background-color: rgba(0, 0, 0, 0.2);
 }
-#singleTouchControls .move {
+#singleTouchControls .stmove {
   width: 100%;
+  height: 100%;
 }
 #top {
   position: absolute;
   top: 0px;
   left: 0px;
-  z-index: 4;
+  gz-index: 4;
   width: 100%;
   height: 100%;
 }
 #text {
+  height: 10%;
   background-color: black;
 }
 #input {
   display: none;
 }
 </style>
-<link rel="stylesheet" media="all and (max-device-width: 480px)" href="phone.css">
-<link rel="stylesheet" media="all and (min-device-width: 481px) and (max-device-width: 1024px) and (orientation:portrait)" href="tablet-portrait.css">
-<link rel="stylesheet" media="all and (min-device-width: 481px) and (max-device-width: 1024px) and (orientation:landscape)" href="tablet-landscape.css">
-<link rel="stylesheet" media="screen" href="monitor.css">
+<link rel="stylesheet" media="all and (max-device-width: 1024px) and (orientation:portrait)" href="tablet-portrait.css">
+<link rel="stylesheet" media="all and (max-device-width: 1024px) and (orientation:landscape)" href="tablet-landscape.css">
+<link rel="stylesheet" media="all and (max-device-width: 900px) and (orientation:portrait)" href="phone-portrait.css">
+<link rel="stylesheet" media="all and (max-device-width: 900px) and (orientation:landscape)" href="phone-landscape.css">
+<link rel="stylesheet" media="all and (min-device-width: 1025px)" href="monitor.css">
 <script type="text/javascript" src="../socket.io/socket.io.js"></script>
 <script type="text/javascript" src="tdl/base.js"></script>
 <script>
@@ -116,6 +128,7 @@ var g_ctx = 0;
 var g_canvas;
 var g_startX;
 var g_startY;
+var g_startTime;
 
 function $(id) {
   return document.getElementById(id);
@@ -240,82 +253,47 @@ function debugTouch(label, event) {
   s.scrollTop = s.scrollHeight;
 }
 
-function touchStart(event) {
+function touchMoveStart(event) {
   event.preventDefault();
   var allTouches = event.touches;
-  var width = event.target.clientWidth;
-  var halfWidth = width * 0.5;
   for (var ii = 0; ii < allTouches.length; ++ii) {
     ++g_numTouches;
     var touch = allTouches[ii];
-    if (touch.pageX < halfWidth) {
-      g_dirTouchStart = touch.pageX;
-    } else {
-      if (!g_fire) {
-        g_fire = true;
+    g_dirTouchStart = touch.pageX;
+    break;
+  }
+
+  //debugTouch("start", event);
+}
+
+function touchMoveMove(event) {
+  event.preventDefault();
+  //debugTouch("move", event);
+  var allTouches = event.touches;
+  for (var ii = 0; ii < allTouches.length; ++ii) {
+    var touch = allTouches[ii];
+    var dx = touch.pageX - g_dirTouchStart;
+    //logTo("status", dx)
+    var fudge = 20
+    if (dx < -fudge) {
+      if (!g_left) {
+        g_left = 1;
+        g_right = 0;
         sendCmd("update", {
-            cmd: 'fire',
-            fire: 1
+            cmd: 'turn',
+            turn: -1
         });
       }
-    }
-  }
-
-  debugTouch("start", event);
-}
-
-function touchMove(event) {
-  event.preventDefault();
-  var allTouches = event.touches;
-  var width = event.target.clientWidth;
-  var halfWidth = width * 0.5;
-  for (var ii = 0; ii < allTouches.length; ++ii) {
-    var touch = allTouches[ii];
-    if (touch.pageX < halfWidth) {
-      var dx = touch.pageX - g_dirTouchStart;
-      if (dx < -15) {
-        if (!g_left) {
-          g_left = 1;
-          g_right = 0;
-          sendCmd("update", {
-              cmd: 'turn',
-              turn: -1
-          });
-        }
-      } else if (dx > 15) {
-        if (!g_right) {
-          g_left = 0;
-          g_right = 1;
-          sendCmd("update", {
-              cmd: 'turn',
-              turn: 1
-          });
-        }
-      } else {
-        if (g_right || g_left) {
-          g_left = 0;
-          g_right = 0;
-          sendCmd("update", {
-              cmd: 'turn',
-              turn: 0
-          });
-        }
+    } else if (dx > fudge) {
+      if (!g_right) {
+        g_left = 0;
+        g_right = 1;
+        sendCmd("update", {
+            cmd: 'turn',
+            turn: 1
+        });
       }
-    }
-  }
-  debugTouch("move", event);
-}
-
-function touchEnd(event) {
-  event.preventDefault();
-
-  var allTouches = event.touches;
-  var width = event.target.clientWidth;
-  var halfWidth = width * 0.5;
-  for (var ii = 0; ii < allTouches.length; ++ii) {
-    --g_numTouches;
-    var touch = allTouches[ii];
-    if (touch.pageX < halfWidth) {
+    } else {
       if (g_right || g_left) {
         g_left = 0;
         g_right = 0;
@@ -324,46 +302,90 @@ function touchEnd(event) {
             turn: 0
         });
       }
-    } else {
-      if (g_fire) {
-        g_fire = false;
-        sendCmd("update", {
-            cmd: 'fire',
-            fire: 0
-        });
-      }
     }
+    break;
   }
-
-  if (g_numTouches == 0) {
-    if (g_right || g_left) {
-      g_left = 0;
-      g_right = 0;
-      sendCmd("update", {
-          cmd: 'turn',
-          turn: 0
-      });
-    }
-    if (g_fire) {
-      g_fire = false;
-      sendCmd("update", {
-          cmd: 'fire',
-          fire: 0
-      });
-    }
-  }
-
-  debugTouch("end", event);
 }
 
-function touchCancel(event) {
+function touchMoveEnd(event) {
   event.preventDefault();
-  debugTouch("cancel", event);
+  if (g_right || g_left) {
+    g_left = 0;
+    g_right = 0;
+    sendCmd("update", {
+        cmd: 'turn',
+        turn: 0
+    });
+  }
+  //debugTouch("end", event);
 }
+
+function touchMoveCancel(event) {
+  touchMoveEnd(event)
+}
+
+function touchFireStart(event) {
+  event.preventDefault();
+  if (!g_fire) {
+    g_fire = true;
+    sendCmd("update", {
+        cmd: 'fire',
+        fire: 1
+    });
+  }
+
+  //debugTouch("start", event);
+}
+
+function touchFireMove(event) {
+  event.preventDefault();
+  //debugTouch("move", event);
+}
+
+function touchFireEnd(event) {
+  event.preventDefault();
+  if (g_fire) {
+    g_fire = false;
+    sendCmd("update", {
+        cmd: 'fire',
+        fire: 0
+    });
+  }
+  //debugTouch("end", event);
+}
+
+function touchFireCancel(event) {
+  touchFireEnd(event);
+  //debugTouch("cancel", event);
+}
+
+/**
+ * Returns the absolute position of an element for certain browsers.
+ * @param {HTML Element} element The element to get a position for.
+ * @return {Object} An object containing x and y as the absolute position
+ *     of the given element.
+ */
+var getAbsolutePosition = function(element) {
+  var r = { x: element.offsetLeft, y: element.offsetTop };
+  if (element.offsetParent) {
+    var tmp = getAbsolutePosition(element.offsetParent);
+    r.x += tmp.x;
+    r.y += tmp.y;
+  }
+  return r;
+};
+
+var getRelativeCoordinates = function(reference, event) {
+  // Use absolute coordinates
+  var pos = getAbsolutePosition(reference);
+  x = event.pageX - pos.x;
+  y = event.pageY - pos.y;
+  return { x: x, y: y };
+};
 
 function updateTarget(element, x, y) {
   var centerX = element.clientWidth / 2;
-  var centerY = element.clientWidth / 2;
+  var centerY = element.clientHeight / 2;
   var dx = x - centerX;
   var dy = y - centerY;
   var direction = Math.atan2(dy, dx);
@@ -381,11 +403,11 @@ function updateTarget(element, x, y) {
   ctx.beginPath();
   ctx.closePath();
   ctx.moveTo(10, 0);
-  ctx.lineTo(10, 100);
-  ctx.lineTo(30, 100);
-  ctx.lineTo(0, 140);
-  ctx.lineTo(-30, 100);
-  ctx.lineTo(-10, 100);
+  ctx.lineTo(10, 50);
+  ctx.lineTo(30, 50);
+  ctx.lineTo(0, 70);
+  ctx.lineTo(-30, 50);
+  ctx.lineTo(-10, 50);
   ctx.lineTo(-10, 00);
   ctx.closePath();
   ctx.fill();
@@ -395,42 +417,36 @@ function updateTarget(element, x, y) {
 
 function singleTouchStart(event) {
   event.preventDefault();
-  sendCmd("update", {
-      cmd: 'fire',
-      fire: 1
-  });
-  updateTarget(event.target, event.touches[0].pageX, event.touches[0].pageY);
+  var m = getRelativeCoordinates(event.target, event.touches[0]);
+  updateTarget(event.target, m.x, m.y);
+  g_startTime = (new Date()).getTime();
 }
 
 function singleTouchMove(event) {
   event.preventDefault();
-  updateTarget(event.target, event.touches[0].pageX, event.touches[0].pageY);
+  var m = getRelativeCoordinates(event.target, event.touches[0]);
+  updateTarget(event.target, m.x, m.y);
 }
 
 function singleTouchEnd(event) {
   event.preventDefault();
-  sendCmd("update", {
-      cmd: 'fire',
-      fire: 0
-  });
-  sendCmd("update", {
-      cmd: 'target',
-      target: -1
-  });
+  var now = (new Date()).getTime();
+
+  if (now - g_startTime < 200) {
+    sendCmd("update", {
+        cmd: 'fire',
+        fire: 1
+    });
+    sendCmd("update", {
+        cmd: 'fire',
+        fire: 0
+    });
+  }
 }
 
 function singleTouchCancel(event) {
-  event.preventDefault();
-  sendCmd("update", {
-      cmd: 'fire',
-      fire: 0
-  });
-  sendCmd("update", {
-      cmd: 'target',
-      target: -1
-  });
+  singleTouchEnd(event);
 }
-
 
 function handleKeyDown(keyCode, state) {
   switch(event.keyCode) {
@@ -567,17 +583,24 @@ function main() {
       var touchControls = $("touchControls");
       singleTouchControls.style.display = "block";
       touchControls.style.display = "none";
-      surface.addEventListener("touchstart", singleTouchStart, false);
-      surface.addEventListener("touchmove", singleTouchMove, false);
-      surface.addEventListener("touchend", singleTouchEnd, false);
-      surface.addEventListener("touchcancel", singleTouchCancel, false);
+      var stcontrol = $("stcontrol");
+      stcontrol.addEventListener("touchstart", singleTouchStart, false);
+      stcontrol.addEventListener("touchmove", singleTouchMove, false);
+      stcontrol.addEventListener("touchend", singleTouchEnd, false);
+      stcontrol.addEventListener("touchcancel", singleTouchCancel, false);
       g_canvas = document.getElementsByTagName("canvas")[0];
       g_ctx = g_canvas.getContext("2d");
     } else {
-      surface.addEventListener("touchstart", touchStart, false);
-      surface.addEventListener("touchmove", touchMove, false);
-      surface.addEventListener("touchend", touchEnd, false);
-      surface.addEventListener("touchcancel", touchCancel, false);
+      var tcmove = $("tcmove");
+      var tcfire = $("tcfire");
+      tcmove.addEventListener("touchstart", touchMoveStart, false);
+      tcmove.addEventListener("touchmove", touchMoveMove, false);
+      tcmove.addEventListener("touchend", touchMoveEnd, false);
+      tcmove.addEventListener("touchcancel", touchMoveCancel, false);
+      tcfire.addEventListener("touchstart", touchFireStart, false);
+      tcfire.addEventListener("touchmove", touchFireMove, false);
+      tcfire.addEventListener("touchend", touchFireEnd, false);
+      tcfire.addEventListener("touchcancel", touchFireCancel, false);
     }
   } else {
     var keyControls = $("keyControls");
@@ -599,36 +622,57 @@ function main() {
   <div id="console">
   </div>
 </div>
-<div id="touchControls">
-  <div class="move">
-    <div class="instruction">Press here to Move and Steer</div>
-  </div>
-  <div class="fire">
-    <div class="instruction">Press here to Fire</div>
-  </div>
-</div>
-<div id="singleTouchControls">
-  <div class="move">
-    <div class="instruction">Press to Steer, Tap to Fire</div>
-    <canvas class="canvas" width="300" height="300"></canvas>
-  </div>
-</div>
-<div id="keyControls">
+<div id="top">
   <div id="text">
     <div id="msg">msg</div>
     <input type="text" id="input" />
   </div>
-  <div class="move">
-    <div class="instruction">Press Cursor Keys to Steer</div>
-  </div>
-  <div class="fire">
-    <div class="instruction">Press Z to Fire</div>
+  <div id="controlArea">
+    <div id="touchControls">
+      <!-- FUCK U CSS ... 2 hours fucking with you you suck! -->
+      <table border="0" cellpadding="0" cellspacing="0" width="100%" height="100%">
+        <tr>
+          <td width="50%">
+        <div id="tcmove" class="move">
+          <div class="instruction">Drag Left/Right here to Steer</div>
+        </div>
+          </td>
+          <td width="50%">
+        <div id="tcfire" class="fire">
+          <div class="instruction">Press here to Fire</div>
+        </div>
+          </td>
+        </tr>
+      </table>
+    </div>
+    <div id="singleTouchControls">
+      <div class="stmove">
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" height="100%">
+        <tr height="10px">
+          <td>
+            <div class="instruction">Press to Steer, Tap to Fire</div>
+          </td>
+        </tr>
+        <tr>
+          <td valign="middle" align="center" id="stcontrol">
+              <center>
+                <canvas class="canvas" width="150" height="150"></canvas>
+              <center>
+          </td>
+        </tr>
+        </table>
+      </div>
+    </div>
+    <div id="keyControls">
+      <div class="move">
+        <div class="instruction">Press Cursor Keys to Steer</div>
+      </div>
+      <div class="fire">
+        <div class="instruction">Press Z to Fire</div>
+      </div>
+    </div>
   </div>
 </div>
-<!--
-<div id="top">
-</div>
--->
 </body>
 </html>
 
