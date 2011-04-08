@@ -31,6 +31,12 @@ html, body {
   background-color: red;
   height: 100%;
 }
+#highscore, #queue {
+  white-space: nowrap;
+  overflow: hidden;
+	height: 100%;
+  background-color: #008;
+}
 #highscores-outer {
   width: 100%;
   height: 50%;
@@ -39,7 +45,7 @@ html, body {
 #queue-outer {
   width: 100%;
   height: 50%;
-  background-color: #008;
+  background-color: blue;
 }
 #queue-canvas {
   width: 100%;
@@ -756,7 +762,7 @@ Player.prototype.update = function(msg) {
           name: this.playerName
         });
       } else {
-        this.playerName = msg.name;
+        this.playerName = msg.name.replace(/[<>]/g, '');
         g_updateStatus = true;
       }
       break;
@@ -1074,9 +1080,9 @@ QueueManager.prototype.getElement_ = function(index) {
     name.style.position = "absolute";
     name.style.top = "4px";
     name.style.left = "40px";
-    name.style.color = "yellow";
+    name.style.color = "white";
     name.style.fontFamily = "sans-serif";
-    name.style.fontSize = "24px";
+    name.style.fontSize = "20px";
     line.appendChild(span);
     line.appendChild(img);
     line.appendChild(name);
@@ -1185,7 +1191,8 @@ ScoreManager.prototype.calculateScores = function() {
 ScoreManager.prototype.drawScores = function() {
   for (var ii = 0; ii < this.orderedPlayers_.length; ++ii) {
     var player = this.orderedPlayers_[ii];
-    this.elements_[ii].innerHTML = player.playerName + ": " + player.score;
+    this.elements_[ii].innerHTML =
+      (player.score < 10 ? '0' : '') + player.score + ": " + player.playerName;
   }
   for (var ii = this.orderedPlayers_.length; ii < this.maxScores_; ++ii) {
     this.elements_[ii].innerHTML = "";
