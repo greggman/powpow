@@ -511,7 +511,7 @@ function sendName() {
 }
 
 function finishSendName(event) {
-  g_name = $('input').value;
+  g_name = $('input').value.replace(/[<>]/g, '');
   createCookie("name", g_name, 90);
   tdl.log("name: ", g_name);
   sendName(event);
