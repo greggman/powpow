@@ -51,14 +51,19 @@ audio = (function() {
 
     function handleError(filename, audio) {
         return function(e) {
+          tdl.log("can't load ", filename);
           if (filename.substr(filename.length - 4) == ".ogg") {
             filename = filename.substr(0, filename.length - 4) + ".mp3";
             tdl.log("trying ", filename);
             audio.src = filename;
             audio.onerror = handleError(filename, audio);
             audio.load();
-          } else {
-            tdl.log("can't load ", filename);
+          } else if (filename.substr(filename.length - 4) == ".mp3") {
+            filename = filename.substr(0, filename.length - 4) + ".wav";
+            tdl.log("trying ", filename);
+            audio.src = filename;
+            audio.onerror = handleError(filename, audio);
+            audio.load();
           }
         }
     }
