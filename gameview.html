@@ -686,6 +686,7 @@ function Player(x, y, direction, clientId, opt_name) {
     ++g_playerCount;
     this.clientId = clientId;
   }
+  this.isMetaQueuePlayer = isMetaQueuePlayer;
   this.position = [x, y];
   this.hp = 3;
   this.color = makeColor(g_playerCount);
@@ -720,7 +721,7 @@ function Player(x, y, direction, clientId, opt_name) {
   this.busy = false;
 
   if (isMetaQueuePlayer) {
-    this.setState('fly')
+    this.setState('fly');
   } else {
     if (window.io) {
       this.addToQueue();
@@ -970,12 +971,16 @@ Player.prototype.draw = function(renderer) {
  * @constructor
  */
 function MetaQueuePlayer(x, y, direction) {
-  Player.call(this, x, y, direction, -1, "ghost");
+  Player.call(this, x, y, direction, -1, "The Ghost");
   this.accumClear();
-  this.fadeOutRate = 1 / /*seconds == */ 1;
+  this.fadeOutRate = 1; /* seconds == 1 */
   this.fade = 0;
 };
 tdl.base.inherit(MetaQueuePlayer, Player);
+
+MetaQueuePlayer.prototype.send = function() {
+  // do nothing.
+};
 
 MetaQueuePlayer.prototype.accumClear = function() {
   if (!this.accum)
