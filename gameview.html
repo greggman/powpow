@@ -34,7 +34,7 @@ html, body {
 #highscore, #queue {
   white-space: nowrap;
   overflow: hidden;
-	height: 100%;
+  height: 100%;
   background-color: #008;
 }
 #highscores-outer {
@@ -320,15 +320,11 @@ CanvasRenderer.prototype.drawShot = function(position, count) {
 CanvasRenderer.prototype.startExplosion = function(position, direction, color) {
 };
 
-function WebGLRenderer(canvas) {
+function WebGLRenderer(canvas, gl) {
   var math = tdl.math;
   var fast = tdl.fast;
   this.canvas = canvas;
 
-  gl = tdl.webgl.setupWebGL(canvas);
-  if (!gl) {
-    return false;
-  }
   if (g_debug) {
     gl = tdl.webgl.makeDebugContext(gl, undefined, LogGLCall);
   }
@@ -668,10 +664,10 @@ function Player(x, y, direction, clientId, opt_name) {
     color: this.color.canvasColor
   });
 
-	if (opt_name) {
+  if (opt_name) {
     this.playerName = opt_name;
   } else {
-		this.playerName = "Player" + (++g_totalPlayerCount);
+    this.playerName = "Player" + (++g_totalPlayerCount);
   }
   this.turn = 0;
   this.targetDir = -1;
@@ -686,12 +682,12 @@ function Player(x, y, direction, clientId, opt_name) {
   this.score = 0;
   this.timer = 0;
   this.launchDuration = 0.5;
-	this.showPlaceInQueue = false;
+  this.showPlaceInQueue = false;
 
   // If true the player is entering their name.
   // Don't launch them if they are in the queue.
   // TODO(gman): Implement this?
-	this.busy = false;
+  this.busy = false;
 
   if (isMetaQueuePlayer) {
     this.setState('fly')
@@ -882,7 +878,7 @@ Player.prototype.die = function(killer) {
   this.timer = 2;
   this.setState('die');
   this.removeFromActive();
-	this.send({
+  this.send({
     cmd: 'die',
     killer: killer.playerName
   });
@@ -890,7 +886,7 @@ Player.prototype.die = function(killer) {
     cmd: 'kill',
     killed: this.playerName
   });
-	this.showPlaceInQueue = true;
+  this.showPlaceInQueue = true;
   g_renderer.startExplosion(
       this.position,
       this.direction,
@@ -944,7 +940,7 @@ Player.prototype.draw = function(renderer) {
  * @constructor
  */
 function MetaQueuePlayer(x, y, direction) {
-  Player.call(this, x, y, direction, -1, "ghost"); 
+  Player.call(this, x, y, direction, -1, "ghost");
   this.accumClear();
   this.fadeOutRate = 1 / /*seconds == */ 1;
   this.fade = 0;
@@ -971,9 +967,9 @@ MetaQueuePlayer.prototype.draw = function(renderer) {
   case 0:
     var randShakePixels = 4;
     renderer.drawShip(
-      add2D(this.position, 
-        a*(-randShakePixels+2*randShakePixels*Math.random()), 
-        a*(-randShakePixels+2*randShakePixels*Math.random())), 
+      add2D(this.position,
+        a*(-randShakePixels+2*randShakePixels*Math.random()),
+        a*(-randShakePixels+2*randShakePixels*Math.random())),
       this.direction, white);
     break;
   case 1:
@@ -989,7 +985,7 @@ MetaQueuePlayer.prototype.state_fly = function(elapsedTime) {
   this.targetDir = [0, 0];
   this.fire = 0;
   this.fade -= elapsedTime * this.fadeOutRate;
-  
+
   if (this.accum.turnCount) {
     this.turn = this.accum.turn / this.accum.turnCount;
     this.fade = 1;
@@ -1249,7 +1245,7 @@ QueueManager.prototype.sendPlaceInQueue = function(player) {
   if (player.showPlaceInQueue) {
     player.send({
       cmd: 'queue',
-			count: player.placeInQueue
+      count: player.placeInQueue
     });
   }
 };
@@ -1257,13 +1253,13 @@ QueueManager.prototype.sendPlaceInQueue = function(player) {
 QueueManager.prototype.sendPlaces = function() {
   for (var ii = 0; ii < this.queue_.length; ++ii) {
     var player = this.queue_[ii];
-		player.placeInQueue = ii;
-		this.sendPlaceInQueue(player);
+    player.placeInQueue = ii;
+    this.sendPlaceInQueue(player);
   }
 };
 
 QueueManager.prototype.addToQueue = function(player) {
-	player.placeInQueue = this.queue_.length;
+  player.placeInQueue = this.queue_.length;
   this.queue_.push(player);
   this.draw();
 };
@@ -1273,7 +1269,7 @@ QueueManager.prototype.removeFromQueue = function(player) {
     if (this.queue_[ii].id == player.id) {
       this.queue_.splice(ii, 1);
       this.draw();
-			this.sendPlaces();
+      this.sendPlaces();
       return;
     }
   }
@@ -1393,8 +1389,13 @@ EntitySystem.prototype.processEntities = function(elapsedTime) {
 
 function main() {
   g_canvas = $("canvas");
-  //g_renderer = new CanvasRenderer(g_canvas);
-  g_renderer = new WebGLRenderer(g_canvas);
+
+  gl = tdl.webgl.setupWebGL(canvas, undefined, function() {});
+  if (gl) {
+    g_renderer = new WebGLRenderer(g_canvas, gl);
+  } else {
+    g_renderer = new CanvasRenderer(g_canvas);
+  }
 
   connect();
   sendCmd("server");
@@ -1405,7 +1406,7 @@ function main() {
   g_queueMgr = new QueueManager();
 
   startMetaQueuePlayer();
-  
+
   // Add a 2 players if there is no communication
   if (!window.io) {
     startLocalPlayers();
@@ -1439,10 +1440,10 @@ function main() {
 
     g_renderer.end();
 
-		if (g_updateStatus) {
+    if (g_updateStatus) {
       g_updateStatus = false;
-			g_queueMgr.draw();
-			g_scoreMgr.drawScores();
+      g_queueMgr.draw();
+      g_scoreMgr.drawScores();
     }
 
     // turn off logging after 1 frame.

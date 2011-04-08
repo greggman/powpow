@@ -141,8 +141,10 @@ sys.print("req: " + req.method + '\n');
         if (err) {
           return send404(res);
         }
-        res.writeHead(200, {'Content-Type': mimeType})
-        res.write(data, 'utf8');
+        res.writeHead(200, {
+          'Content-Type': mimeType,
+          'Content-Length': data.length})
+        res.write(data);
         res.end();
       });
     } else send404(res);
