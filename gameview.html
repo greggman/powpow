@@ -648,7 +648,7 @@ function Player(x, y, direction, clientId, opt_name) {
   this.position = [x, y];
   this.hp = 3;
   this.color = makeColor(g_playerCount);
-  sendCmd("client", clientId, {
+  this.send({
     cmd: 'setColor',
     color: this.color.canvasColor
   });
@@ -671,6 +671,7 @@ function Player(x, y, direction, clientId, opt_name) {
   this.score = 0;
   this.timer = 0;
   this.launchDuration = 0.5;
+	this.showPlaceInQueue = false;
 
   // If true the player is entering their name.
   // Don't launch them if they are in the queue.
@@ -757,11 +758,12 @@ Player.prototype.update = function(msg) {
       break;
     case 'name':
       if (!msg.name) {
-        sendCmd("client", this.clientId, {
+        this.send({
           cmd: 'setName',
           name: this.playerName
         });
       } else {
+        this.showPlaceInQueue = true;
         this.playerName = msg.name.replace(/[<>]/g, '');
         g_updateStatus = true;
       }
@@ -776,9 +778,18 @@ Player.prototype.state_queued = function(elapsedTime) {
   this.updateDirection(elapsedTime);
 };
 
+Player.prototype.send = function(cmd) {
+  sendCmd("client", this.clientId, cmd);
+};
+
 Player.prototype.countdown = function() {
   this.timer = 3;
   this.setState('countdown');
+  if (this.showPlaceInQueue) {
+    this.send({
+      cmd: 'launch'
+    });
+  }
 };
 
 Player.prototype.state_countdown = function(elapsedTime) {
@@ -843,6 +854,15 @@ Player.prototype.die = function(killer) {
   this.timer = 2;
   this.setState('die');
   this.removeFromActive();
+	this.send({
+    cmd: 'die',
+    killer: killer.playerName
+  });
+  killer.send({
+    cmd: 'kill',
+    killed: this.playerName
+  });
+	this.showPlaceInQueue = true;
   g_renderer.startExplosion(
       this.position,
       this.direction,
@@ -1113,8 +1133,25 @@ QueueManager.prototype.setElements_ = function(index, players, launching) {
   }
 };
 
+QueueManager.prototype.sendPlaceInQueue = function(player) {
+  if (player.showPlaceInQueue) {
+    player.send({
+      cmd: 'queue',
+			count: player.placeInQueue
+    });
+  }
+};
+
+QueueManager.prototype.sendPlaces = function() {
+  for (var ii = 0; ii < this.queue_.length; ++ii) {
+    var player = this.queue_[ii];
+		player.placeInQueue = ii;
+		this.sendPlaceInQueue(player);
+  }
+};
 
 QueueManager.prototype.addToQueue = function(player) {
+	player.placeInQueue = this.queue_.length;
   this.queue_.push(player);
   this.draw();
 };
@@ -1124,6 +1161,7 @@ QueueManager.prototype.removeFromQueue = function(player) {
     if (this.queue_[ii].id == player.id) {
       this.queue_.splice(ii, 1);
       this.draw();
+			this.sendPlaces();
       return;
     }
   }
