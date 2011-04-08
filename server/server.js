@@ -15,6 +15,8 @@ var getMimeType = function() {
     '.png': 'image/png',
     '.css': 'text/css',
     '.ogg': 'audio/ogg',
+    '.wav': 'audio/wav',
+    '.mp3': 'audio/mp3',
     '.js': 'text/javascript',
     '.html': 'text/html'
   };

@@ -204,10 +204,25 @@ function processMessage(msg) {
   case 'setName':
     g_name = msg.name;
     $('msg').innerHTML = "Name: " + g_name + " -- click to edit";
+    $('msg').style.color = '#FFF';
     $('input').value = g_name;
-  case 'win':
     break;
-  case 'lose':
+  case 'kill':
+    $('msg').innerHTML = 'Killed ' + msg.killed;
+    $('msg').style.color = '#0FF';
+    break;
+  case 'die':
+    $('msg').innerHTML = 'Killed by ' + msg.killer;
+    $('msg').style.color = '#F00';
+    break;
+  case 'launch':
+    $('msg').innerHTML = 'Launch!';
+    $('msg').style.color = '#FF0';
+    break;
+  case 'queue':
+    $('msg').innerHTML = msg.count > 0 ?
+        (msg.count.toString() + " ahead of you") : "Next Up";
+    $('msg').style.color = '#FFF';
     break;
   }
 }
@@ -495,6 +510,7 @@ function keyDown(event) {
 
 function enterName(event) {
   $('msg').style.display = "none";
+  $('msg').style.color = "#FFF";
   $('input').style.display = "block";
   sendCmd("update", {
       cmd: 'busy',
