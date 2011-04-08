@@ -101,6 +101,18 @@ html, body {
 #input {
   display: none;
 }
+#disconnected {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  width: 100%;
+  height: 100%;
+  display: none;
+  background-color: black;
+  color: white;
+  text-align: center;
+  z-index: 1000
+}
 </style>
 <link rel="stylesheet" media="all and (max-device-width: 1024px) and (orientation:portrait)" href="tablet-portrait.css">
 <link rel="stylesheet" media="all and (max-device-width: 1024px) and (orientation:landscape)" href="tablet-landscape.css">
@@ -153,28 +165,28 @@ function log() {
 }
 
 function createCookie(name,value,days) {
-	if (days) {
-		var date = new Date();
-		date.setTime(date.getTime()+(days*24*60*60*1000));
-		var expires = "; expires="+date.toGMTString();
-	}
-	else var expires = "";
-	document.cookie = name+"="+value+expires+"; path=/";
+  if (days) {
+    var date = new Date();
+    date.setTime(date.getTime()+(days*24*60*60*1000));
+    var expires = "; expires="+date.toGMTString();
+  }
+  else var expires = "";
+  document.cookie = name+"="+value+expires+"; path=/";
 }
 
 function readCookie(name) {
-	var nameEQ = name + "=";
-	var ca = document.cookie.split(';');
-	for(var i=0;i < ca.length;i++) {
-		var c = ca[i];
-		while (c.charAt(0)==' ') c = c.substring(1,c.length);
-		if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
-	}
-	return null;
+  var nameEQ = name + "=";
+  var ca = document.cookie.split(';');
+  for(var i=0;i < ca.length;i++) {
+    var c = ca[i];
+    while (c.charAt(0)==' ') c = c.substring(1,c.length);
+    if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+  }
+  return null;
 }
 
 function eraseCookie(name) {
-	createCookie(name,"",-1);
+  createCookie(name,"",-1);
 }
 
 function connect(server, port) {
@@ -196,9 +208,21 @@ function connect(server, port) {
         'xhr-polling'
       ]});
   g_socket.connect();
+  g_socket.on('connect', connected);
   g_socket.on('message', function(obj) {
     processMessage(obj);
   });
+  g_socket.on('disconnect', disconnected);
+}
+
+function connected() {
+  tdl.log("connected");
+  $("disconnected").style.display = "none";
+}
+
+function disconnected() {
+  tdl.log("disconnected");
+  $("disconnected").style.display = "block";
 }
 
 function sendCmd(cmd, data) {
@@ -563,6 +587,10 @@ function finishSendName(event) {
   });
 }
 
+function reloadPage() {
+  window.location.reload();
+}
+
 function main() {
   connect();
 
@@ -613,6 +641,7 @@ function main() {
   $('msg').addEventListener("click", enterName, false);
   $('input').addEventListener("change", finishSendName, false);
   $('input').addEventListener("blur", finishSendName, false);
+  $('reload').addEventListener("click", reloadPage, false);
 }
 </script>
 </head>
@@ -671,6 +700,10 @@ function main() {
         <div class="instruction">Press Z to Fire</div>
       </div>
     </div>
+  </div>
+  <div id="disconnected">
+    <div class="instruction">Disconnected</div>
+    <div class="instruction" id="reload">click to reload</div>
   </div>
 </div>
 </body>
