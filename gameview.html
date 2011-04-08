@@ -9,19 +9,29 @@ html, body {
   border: 0px;
   padding: 0px;
   margin: 0px;
-  background-color: black;
+  background-color: purple; //black;
   font-family: sans-serif;
   color: white;
   font-size: 20px;
+}
+#url {
+  height: 5%;
+  background-color: #008;
+  text-align: center;
 }
 #outer {
   width: 100%;
   height: 100%;
 }
-#canvas {
+#main {
   float: left;
   width: 85%;
   height: 100%;
+}
+#canvas {
+  width: 100%;
+  height: 95%;
+  background-color: black;
   gbackground-image: url(assets/background.jpg);
   gbackground-size: 100%;
 }
@@ -1424,6 +1434,8 @@ EntitySystem.prototype.processEntities = function(elapsedTime) {
 
 function main() {
   g_canvas = $("canvas");
+  $("url").innerHTML = "To Play Go To " +
+       window.location.href.replace(/\/[^/]*$/, '');
 
   gl = tdl.webgl.setupWebGL(canvas, undefined, function() {});
   if (gl) {
@@ -1582,25 +1594,6 @@ function startLocalPlayers() {
   window.addEventListener("keydown", keyDown, false);
 }
 </script>
-</head>
-<body>
-<div id="outer">
-  <canvas id="canvas"></canvas>
-  <div id="status">
-    <div id="highscores-outer">
-      <div class="headline">High Score</div>
-      <div id="highscore"></div>
-    </div>
-    <div id="queue-outer">
-      <div class="headline">Waiting</div>
-      <div id="queue"><!--<canvas id="queue-canvas"></canvas>--></div>
-    </div>
-  </div>
-</div>
-<div id="disconnected">
-  <div class="instruction">Disconnected</div>
-  <div id="reload">...lost connection to server (T_T)...</div>
-</div>
 <script id="screenVertexShader" type="whatever">
 uniform mat3 matrix;
 uniform vec2 screenDimensions;
@@ -1668,6 +1661,26 @@ void main() {
   gl_FragColor = color;
 }
 </script>
-</body>
+</head>
+<body>
+<div id="outer">
+  <div id="main">
+    <div id="url">test</div>
+    <canvas id="canvas"></canvas>
+  </div>
+  <div id="status">
+    <div id="highscores-outer">
+      <div class="headline">High Score</div>
+      <div id="highscore"></div>
+    </div>
+    <div id="queue-outer">
+      <div class="headline">Waiting</div>
+      <div id="queue"></div>
+    </div>
+  </div>
+</div><div id="disconnected">
+  <div class="instruction">Disconnected</div>
+  <div id="reload">...lost connection to server (T_T)...</div>
+</div></body>
 </html>
 
