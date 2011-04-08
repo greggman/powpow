@@ -413,6 +413,10 @@ function singleTouchEnd(event) {
       cmd: 'fire',
       fire: 0
   });
+  sendCmd("update", {
+      cmd: 'target',
+      target: -1
+  });
 }
 
 function singleTouchCancel(event) {
@@ -420,6 +424,10 @@ function singleTouchCancel(event) {
   sendCmd("update", {
       cmd: 'fire',
       fire: 0
+  });
+  sendCmd("update", {
+      cmd: 'target',
+      target: -1
   });
 }
 
