@@ -44,18 +44,29 @@ audio = (function() {
         that.waiting_on_load--;
       }, false);
       audio.src = filename;
-      audio.onerror = function(filename) {
-        return function(e) {
-          tdl.log("can't load ", filename);
-        }
-      }(filename);
+      audio.onerror = handleError(filename, audio);
       audio.load();
       this.audio[i] = audio;
+    }
+
+    function handleError(filename, audio) {
+        return function(e) {
+          if (filename.substr(filename.length - 4) == ".ogg") {
+            filename = filename.substr(0, filename.length - 4) + ".mp3";
+            tdl.log("trying ", filename);
+            audio.src = filename;
+            audio.onerror = handleError(filename, audio);
+            audio.load();
+          } else {
+            tdl.log("can't load ", filename);
+          }
+        }
     }
   }
 
   function init() {
-    g_can_play = new Audio().canPlayType("audio/ogg");
+    var a = new Audio()
+    g_can_play = a.canPlayType("audio/ogg") || a.canPlayType("audio/mp3");
     if (!g_can_play)
       return;
 
