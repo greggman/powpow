@@ -3,10 +3,6 @@
 <head>
 <meta name="viewport" content="user-scalable=no, width=device-width, height=device-height">
 <title>PowPow Controls</title>
-<link rel="stylesheet" media="all and (max-device-width: 480px)" href="phone.css">
-<link rel="stylesheet" media="all and (min-device-width: 481px) and (max-device-width: 1024px) and (orientation:portrait)" href="tablet-portrait.css">
-<link rel="stylesheet" media="all and (min-device-width: 481px) and (max-device-width: 1024px) and (orientation:landscape)" href="tablet-landscape.css">
-<link rel="stylesheet" media="all and (min-device-width: 1025px)" href="monitor.css">
 <style>
 html, body {
   width: 100%;
@@ -88,12 +84,24 @@ html, body {
   width: 100%;
   height: 100%;
 }
+#text {
+  background-color: black;
+}
+#input {
+  display: none;
+}
 </style>
+<link rel="stylesheet" media="all and (max-device-width: 480px)" href="phone.css">
+<link rel="stylesheet" media="all and (min-device-width: 481px) and (max-device-width: 1024px) and (orientation:portrait)" href="tablet-portrait.css">
+<link rel="stylesheet" media="all and (min-device-width: 481px) and (max-device-width: 1024px) and (orientation:landscape)" href="tablet-landscape.css">
+<link rel="stylesheet" media="screen" href="monitor.css">
 <script type="text/javascript" src="../socket.io/socket.io.js"></script>
-<script type="text/javascript" src="../tdl/base.js"></script>
+<script type="text/javascript" src="tdl/base.js"></script>
 <script>
+tdl.require('tdl.log');
 window.onload = main;
 
+var g_name = "";
 var g_socket;
 var g_turn = 0;
 var g_oldTurn = 0;
@@ -132,6 +140,12 @@ function log() {
 }
 
 function connect(server, port) {
+  if (!window.io) {
+    g_socket = {
+      send: function() { }
+    };
+    return;
+  }
   var server = window.location.href.match(/\/\/(.*?)\//)[1];
   var port = 8080;
   g_socket = new io.Socket(null, {
@@ -162,6 +176,10 @@ function processMessage(msg) {
     var e = $("surface");
     e.style.backgroundColor = msg.color;
     break;
+  case 'setName':
+    g_name = msg.name;
+    $('msg').innerHTML = "Name: " + g_name + " -- click to edit";
+    $('input').value = g_name;
   case 'win':
     break;
   case 'lose':
@@ -450,6 +468,27 @@ function keyDown(event) {
   updateKey(event.keyCode, true);
 }
 
+function enterName(event) {
+  $('msg').style.display = "none";
+  $('input').style.display = "block";
+}
+
+function sendName() {
+  sendCmd("update", {
+      cmd: 'name',
+      name: g_name
+  });
+  $('msg').innerHTML = g_name;
+}
+
+function finishSendName(event) {
+  g_name = $('input').value;
+  tdl.log("name: ", g_name);
+  sendName(event);
+  $('msg').style.display = "block";
+  $('input').style.display = "none";
+}
+
 function main() {
   connect();
 
@@ -482,6 +521,9 @@ function main() {
     window.addEventListener("keyup", keyUp, false);
     window.addEventListener("keydown", keyDown, false);
   }
+  $('msg').addEventListener("click", enterName, false);
+  $('input').addEventListener("change", finishSendName, false);
+  $('input').addEventListener("blur", finishSendName, false);
 }
 </script>
 </head>
@@ -493,28 +535,34 @@ function main() {
 </div>
 <div id="touchControls">
   <div class="move">
-    <div class="msg">Press here to Move and Steer</div>
+    <div class="instruction">Press here to Move and Steer</div>
   </div>
   <div class="fire">
-    <div class="msg">Press here to Fire</div>
+    <div class="instruction">Press here to Fire</div>
   </div>
 </div>
 <div id="singleTouchControls">
   <div class="move">
-    <div class="msg">Press to Steer, Tap to Fire</div>
+    <div class="instruction">Press to Steer, Tap to Fire</div>
     <canvas class="canvas" width="300" height="300"></canvas>
   </div>
 </div>
 <div id="keyControls">
+  <div id="text">
+    <div id="msg">msg</div>
+    <input type="text" id="input" />
+  </div>
   <div class="move">
-    <div class="msg">Press Cursor Keys to Steer</div>
+    <div class="instruction">Press Cursor Keys to Steer</div>
   </div>
   <div class="fire">
-    <div class="msg">Press Z to Fire</div>
+    <div class="instruction">Press Z to Fire</div>
   </div>
 </div>
+<!--
 <div id="top">
 </div>
+-->
 </body>
 </html>
 
