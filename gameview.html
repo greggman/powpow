@@ -92,7 +92,7 @@ tdl.require('tdl.webgl');
 
 window.onload = main;
 
-var g_maxActivePlayers = 12;
+var g_maxActivePlayers = 6;
 var g_playerCount = 1;
 var g_totalPlayerCount = 0;
 var g_canvas;
@@ -717,7 +717,7 @@ function Player(x, y, direction, clientId, opt_name) {
   this.vel = 200;
   this.turnVel = Math.PI * 0.5;
   this.shots = [];
-  this.maxShots = 3;
+  this.maxShots = 2;
   this.shotDuration = 3;
   this.shootTimer = 0;
   this.score = 0;
@@ -1434,7 +1434,7 @@ EntitySystem.prototype.processEntities = function(elapsedTime) {
 
 function main() {
   g_canvas = $("canvas");
-  $("url").innerHTML = "To Play Go To " +
+  $("url").innerHTML = "To Play Go To " + "goto.google.com/powpow or " +
        window.location.href.replace(/\/[^/]*$/, '');
 
   gl = tdl.webgl.setupWebGL(canvas, undefined, function() {});
