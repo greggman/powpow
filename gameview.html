@@ -1447,7 +1447,28 @@ function main() {
   connect();
   sendCmd("server");
 
-  audio.init();
+  audio.init({
+    fire: {
+      filename: "assets/fire.ogg",
+      samples: 8,
+    },
+    explosion: {
+      filename: "assets/explosion.ogg",
+      samples: 6,
+    },
+    launch: {
+      filename: "assets/launch.ogg",
+      samples: 2,
+    },
+    gameover: {
+      filename: "assets/gameover.ogg",
+      samples: 1,
+    },
+    play: {
+      filename: "assets/play.ogg",
+      samples: 1,
+    },
+  });
   g_entitySys = new EntitySystem();
   g_scoreMgr = new ScoreManager();
   g_queueMgr = new QueueManager();
