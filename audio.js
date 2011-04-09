@@ -2,8 +2,6 @@ tdl.provide('audio');
 
 // To play a sound, simply call audio.play_sound(id), where id is
 // one of the keys of the g_sound_files array, e.g. "damage".
-var gg;
-
 audio = (function() {
   var g_sound_files = {
     fire: {
@@ -44,7 +42,7 @@ audio = (function() {
         that.waiting_on_load--;
       }, false);
       audio.src = filename;
-      audio.onerror = handleError(filename, audio);
+      //audio.onerror = handleError(filename, audio);
       audio.load();
       this.audio[i] = audio;
     }
@@ -52,6 +50,7 @@ audio = (function() {
     function handleError(filename, audio) {
         return function(e) {
           tdl.log("can't load ", filename);
+          /*
           if (filename.substr(filename.length - 4) == ".ogg") {
             filename = filename.substr(0, filename.length - 4) + ".mp3";
             tdl.log("trying ", filename);
@@ -65,6 +64,7 @@ audio = (function() {
             audio.onerror = handleError(filename, audio);
             audio.load();
           }
+          */
         }
     }
   }
@@ -93,7 +93,14 @@ audio = (function() {
     }
     var sound = g_sound_bank[name];
     sound.play_idx = (sound.play_idx + 1) % sound.samples;
-    sound.audio[sound.play_idx].play();
+    var a = sound.audio[sound.play_idx];
+    // tdl.log(name, ":", sound.play_idx, ":", a.src);
+    var b = new Audio();
+    b.src = a.src; 
+    b.addEventListener("canplaythrough", function() {
+	    b.play();
+      }, false);
+    b.load();
   }
 
   return {
