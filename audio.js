@@ -4,41 +4,23 @@ tdl.provide('audio');
 // one of the keys of the g_sound_files array, e.g. "damage".
 audio = (function() {
   var g_context;
-  var g_sound_files = {
-    fire: {
-      filename: "assets/fire.ogg",
-      samples: 8,
-    },
-    explosion: {
-      filename: "assets/explosion.ogg",
-      samples: 6,
-    },
-    launch: {
-      filename: "assets/launch.ogg",
-      samples: 2,
-    },
-    gameover: {
-      filename: "assets/gameover.ogg",
-      samples: 1,
-    },
-    play: {
-      filename: "assets/play.ogg",
-      samples: 1,
-    },
-  };
-
   var g_audioMgr;
   var g_sound_bank = {};
   var g_can_play = false;
 
   function WebAudioSound(name, filename, samples) {
     this.name = name;
+    var that = this;
     var req = new XMLHttpRequest();
-    req.open("GET", url, true);
+    req.open("GET", filename, true);
     req.responseType = "arraybuffer";
     req.onload = function() {
-      this.buffer = g_context.createBuffer(req.response, true);
+      that.buffer = g_context.createBuffer(req.response, true);
     }
+    req.addEventListener("error", function(e) {
+      tdl.log("failed to load:", filename, " : ", e.target.status);
+    }, false);
+    req.send();
   }
 
   WebAudioSound.prototype.play = function() {
@@ -46,7 +28,7 @@ audio = (function() {
       tdl.log(this.name, " not loaded");
       return;
     }
-    var src = context.createBufferSource();
+    var src = g_context.createBufferSource();
     src.buffer = this.buffer;
     src.connect(g_context.destination);
     src.noteOn(0);
@@ -108,7 +90,7 @@ audio = (function() {
         }
     }
 
-  function init() {
+  function init(sounds) {
     var a = new Audio()
     g_can_play = a.canPlayType("audio/ogg") || a.canPlayType("audio/mp3");
     if (!g_can_play)
@@ -116,14 +98,16 @@ audio = (function() {
 
     var create;
     if (window.webkitAudioContext) {
+      tdl.log("Using Web Audio API");
       g_context = new webkitAudioContext();
       create = WebAudioSound;
     } else {
+      tdl.log("Using Audio Tag");
       create = AudioTagSound;
     }
 
-    for (sound in g_sound_files) {
-      var data = g_sound_files[sound];
+    for (sound in sounds) {
+      var data = sounds[sound];
       g_sound_bank[sound] = new create(sound, data.filename, data.samples);
     }
   }
