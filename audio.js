@@ -3,6 +3,7 @@ tdl.provide('audio');
 // To play a sound, simply call audio.play_sound(id), where id is
 // one of the keys of the g_sound_files array, e.g. "damage".
 audio = (function() {
+  var g_context;
   var g_sound_files = {
     fire: {
       filename: "assets/fire.ogg",
@@ -26,10 +27,32 @@ audio = (function() {
     },
   };
 
+  var g_audioMgr;
   var g_sound_bank = {};
   var g_can_play = false;
 
-  function Sound(name, filename, samples) {
+  function WebAudioSound(name, filename, samples) {
+    this.name = name;
+    var req = new XMLHttpRequest();
+    req.open("GET", url, true);
+    req.responseType = "arraybuffer";
+    req.onload = function() {
+      this.buffer = g_context.createBuffer(req.response, true);
+    }
+  }
+
+  WebAudioSound.prototype.play = function() {
+    if (!this.buffer) {
+      tdl.log(this.name, " not loaded");
+      return;
+    }
+    var src = context.createBufferSource();
+    src.buffer = this.buffer;
+    src.connect(g_context.destination);
+    src.noteOn(0);
+  };
+
+  function AudioTagSound(name, filename, samples) {
     this.waiting_on_load = samples;
     this.samples = samples;
     this.name = name;
@@ -46,6 +69,23 @@ audio = (function() {
       audio.load();
       this.audio[i] = audio;
     }
+  };
+
+  AudioTagSound.prototype.play = function() {
+    if (this.waiting_on_load > 0) {
+      tdl.log(this.name, " not loaded");
+      return;
+    }
+    this.play_idx = (this.play_idx + 1) % this.samples;
+    var a = this.audio[this.play_idx];
+    // tdl.log(this.name, ":", this.play_idx, ":", a.src);
+    var b = new Audio();
+    b.src = a.src;
+    b.addEventListener("canplaythrough", function() {
+      b.play();
+      }, false);
+    b.load();
+  };
 
     function handleError(filename, audio) {
         return function(e) {
@@ -67,7 +107,6 @@ audio = (function() {
           */
         }
     }
-  }
 
   function init() {
     var a = new Audio()
@@ -75,32 +114,29 @@ audio = (function() {
     if (!g_can_play)
       return;
 
+    var create;
+    if (window.webkitAudioContext) {
+      g_context = new webkitAudioContext();
+      create = WebAudioSound;
+    } else {
+      create = AudioTagSound;
+    }
+
     for (sound in g_sound_files) {
       var data = g_sound_files[sound];
-      g_sound_bank[sound] = new Sound(sound, data.filename, data.samples);
+      g_sound_bank[sound] = new create(sound, data.filename, data.samples);
     }
   }
 
   function play_sound(name) {
     if (!g_can_play)
       return;
-    if (g_sound_bank[name] === undefined) {
+    var sound = g_sound_bank[name];
+    if (!sound) {
       console.error("audio: '" + name + "' not known.");
       return;
-    } else if (g_sound_bank[name].waiting_on_load > 0) {
-      console.error("audio: '" + name + "' not loaded.");
-      return;
     }
-    var sound = g_sound_bank[name];
-    sound.play_idx = (sound.play_idx + 1) % sound.samples;
-    var a = sound.audio[sound.play_idx];
-    // tdl.log(name, ":", sound.play_idx, ":", a.src);
-    var b = new Audio();
-    b.src = a.src; 
-    b.addEventListener("canplaythrough", function() {
-	    b.play();
-      }, false);
-    b.load();
+    sound.play();
   }
 
   return {
