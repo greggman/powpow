@@ -860,7 +860,7 @@ Player.prototype.countdown = function() {
 Player.prototype.state_countdown = function(elapsedTime) {
   this.updateDirection(elapsedTime);
   if (this.timesUp(elapsedTime)) {
-    this.position[0] = Math.random() * g_canvas.width;
+    this.position[0] = Math.random() * g_canvas.width / 2;
     this.position[1] = Math.random() * g_canvas.height;
     this.direction = Math.random() * Math.PI * 2;
 
