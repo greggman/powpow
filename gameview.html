@@ -1010,7 +1010,7 @@ Player.prototype.state_countdown = function(elapsedTime) {
 Player.prototype.state_launch = function(elapsedTime) {
   this.updateDirection(elapsedTime);
   if (this.timesUp(elapsedTime)) {
-    this.invincibilityTimer = 30;
+    this.invincibilityTimer = 3;
     this.setState('fly');
   }
 };
