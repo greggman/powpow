@@ -674,7 +674,7 @@ WebGLRenderer.prototype.drawShot = function(position, count) {
 };
 
 WebGLRenderer.prototype.startExplosion = function(position, direction, color) {
-  var _tp_ = tdl.fast.matrix4.identity(new Float32Array(16));
+  var _tp_ = tdl.fast.matrix4.rotationZ(new Float32Array(16), Math.random() * Math.PI * 2);
   _tp_[12] = position[0];
   _tp_[13] = position[1];
   // We have multiple poofs because if you only have one and it is still going
