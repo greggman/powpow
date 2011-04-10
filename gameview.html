@@ -291,6 +291,7 @@ function makeColor(count) {
 function CanvasRenderer(canvas) {
   this.canvas = canvas;
   this.ctx = canvas.getContext("2d");
+  this.explosions = [];
 
   this.shotColors = [
     "#800000",
@@ -314,11 +315,28 @@ CanvasRenderer.prototype.resize = function() {
   }
 };
 
-CanvasRenderer.prototype.begin = function() {
+CanvasRenderer.prototype.begin = function(elapsedTime) {
   this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 };
 
-CanvasRenderer.prototype.end = function() {
+CanvasRenderer.prototype.end = function(elapsedTime) {
+  var ctx = this.ctx;
+  if (this.explosions.length > 0) {
+    if (this.explosions[0].timer <= 0) {
+      this.explosions.shift();
+    }
+  }
+  for (var ii = 0; ii < this.explosions.length; ++ii) {
+    var explosion = this.explosions[ii];
+    explosion.timer -= elapsedTime;
+    var radius = (1 - (explosion.timer / 1)) * 50 + 10;
+    ctx.save();
+    ctx.fillStyle = "#FF0";
+    ctx.translate(explosion.x, explosion.y);
+    ctx.arc(0, 0, radius, 0, Math.PI * 2, false);
+    ctx.fill();
+    ctx.restore();
+  }
 };
 
 function drawShip(ctx, x, y, direction, color) {
@@ -358,6 +376,11 @@ CanvasRenderer.prototype.drawShot = function(position, count) {
 };
 
 CanvasRenderer.prototype.startExplosion = function(position, direction, color) {
+  this.explosions.push({
+    timer: 1,
+    x: position[0],
+    y: position[1]
+  });
 };
 
 function WebGLRenderer(canvas, gl) {
@@ -597,7 +620,7 @@ WebGLRenderer.prototype.resize = function() {
   }
 };
 
-WebGLRenderer.prototype.begin = function() {
+WebGLRenderer.prototype.begin = function(elapsedTime) {
   this.lastModel = null;
   this.screenDimensions[0] = 2 / this.canvas.width;
   this.screenDimensions[1] = 2 / this.canvas.height;
@@ -609,7 +632,7 @@ WebGLRenderer.prototype.begin = function() {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 };
 
-WebGLRenderer.prototype.end = function() {
+WebGLRenderer.prototype.end = function(elapsedTime) {
   //this.particleSystem.draw(this.viewProjection, this.world, this.viewInverse);
   this.particleSystem.draw(this.projection, this.world, this.viewInverse);
   gl.disable(gl.BLEND);
@@ -1494,7 +1517,7 @@ function main() {
     g_scoreMgr.update();
 
     g_renderer.resize();
-    g_renderer.begin();
+    g_renderer.begin(elapsedTime);
 
     g_metaQueuePlayer.draw(g_renderer);
     for (var ii = 0; ii < g_activePlayers.length; ++ii) {
@@ -1506,7 +1529,7 @@ function main() {
 
     //g_queueMgr.draw();
 
-    g_renderer.end();
+    g_renderer.end(elapsedTime);
 
     if (g_updateStatus) {
       g_updateStatus = false;
