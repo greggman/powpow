@@ -1627,8 +1627,12 @@ EntitySystem.prototype.processEntities = function(elapsedTime) {
 
 function main() {
   g_canvas = $("canvas");
-  $("url").innerHTML = "To Play Go To " + "goto.google.com/powpow or " +
-       window.location.href.replace(/\/[^/]*$/, '');
+  if (window.io) {
+    $("url").innerHTML = "To Play Go To " + "goto.google.com/powpow or " +
+         window.location.href.replace(/\/[^/]*$/, '');
+  } else {
+    $("url").innerHTML = "!!DEBUG MODE!! -- Must run from server to play";
+  }
 
   gl = tdl.webgl.setupWebGL(canvas, undefined, function() {});
   if (gl) {
