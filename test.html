@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="user-scalable=no, width=device-width, height=device-height">
+<title>PowPow Feature Test</title>
+<style>
+html, body {
+  font-family: sans-serif;
+}
+</style>
+<script type="text/javascript" src="tdl/base.js"></script>
+<script>
+tdl.require('tdl.webgl');
+
+window.onload = main;
+
+function logTo(id, str) {
+  var c = document.getElementById(id);
+  var d = document.createElement("div");
+  d.appendChild(document.createTextNode(str));
+  c.appendChild(d);
+}
+
+function log() {
+  var s = ""
+  for (var ii = 0; ii < arguments.length; ++ii) {
+    s += arguments[ii].toString();
+  }
+  logTo("console", s);
+}
+
+function main() {
+  var haveTouch = 'ontouchstart' in document;
+  var haveWebGL = false;
+  var canvas = document.createElement("canvas");
+  if (canvas) {
+    var gl = tdl.webgl.create3DContext(canvas);
+    if (gl) {
+      haveWebGL = true;
+    }
+  }
+  log("--start--")
+  log("Supports WebSockets:", window.WebSocket ? "YES" : "no");
+  log("Supports WebGL:", haveWebGL ? "YES" : "no");
+  log("Supports Touch Events:", haveTouch ? "YES" : "no");
+  log("--end--")
+}
+</script>
+</head>
+<body>
+  <div id="console"></div>
+</body>
+</html>
+
+
