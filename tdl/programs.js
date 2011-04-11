@@ -253,7 +253,6 @@ tdl.programs.Program = function(vertexShader, fragmentShader) {
   function createUniformSetter(info) {
     var loc = gl.getUniformLocation(program, info.name);
     var type = info.type;
-tdl.log("uni: ", info.name);
     if (info.size > 1 && tdl.string.endsWith(info.name, "[0]")) {
       // It's an array.
       if (type == gl.FLOAT)
