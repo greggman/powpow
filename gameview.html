@@ -674,9 +674,11 @@ function WebGLRenderer(canvas, gl) {
     matrix: this.matrix
   };
 
+  this.starParticleSystem = new tdl.particles.ParticleSystem(
+      gl, null, tdl.math.pseudoRandom);
+  setupStars(this.starParticleSystem);
   this.particleSystem = new tdl.particles.ParticleSystem(
       gl, null, tdl.math.pseudoRandom);
-  setupStars(this.particleSystem);
   this.explosions = setupExplosions(this.particleSystem, 20);
   this.shieldhits = setupShieldhits(this.particleSystem, 20);
   this.world = fast.matrix4.identity(new Float32Array(16));
@@ -746,13 +748,21 @@ WebGLRenderer.prototype.end = function(elapsedTime) {
 
   // blend base with persist1 into persist2
   this.persistentFBO2.bind();
-  this.persistPlane.drawPrep();
+  this.persistPlane.drawPrep({persistence: 0.9});
   this.persistPlane.draw({oldRender: this.persistentFBO1.texture});
   this.persistentFBO2.unbind();
 
   // draw on the backbuffer.
+  gl.colorMask(true, true, true, false);
+  gl.clearColor(0,0,0,0);
+  gl.clearDepth(1);
+  gl.depthMask(true);  // Bug in Chrome?
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
   this.lastPlane.drawPrep();
   this.lastPlane.draw({texture: this.persistentFBO2.texture});
+  this.starParticleSystem.draw(this.projection, this.world, this.viewInverse);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.BLEND);
 
   // swap persist FBOs.
   var temp = this.persistentFBO1;
@@ -1735,7 +1745,7 @@ function startLocalPlayers() {
   }
 
   function handleKeyDown(keyCode, state) {
-    switch(event.keyCode) {
+    switch(keyCode) {
     case 37: // left
       if (!g_left) {
         g_left = true;
@@ -1767,7 +1777,7 @@ function startLocalPlayers() {
   }
 
   function handleKeyUp(keyCode, state) {
-    switch(event.keyCode) {
+    switch(keyCode) {
     case 37: // left
       g_left = false;
       sendCmd("update", {
@@ -1850,6 +1860,7 @@ precision highp float;
 #endif
 uniform sampler2D newRender;
 uniform sampler2D oldRender;
+uniform float persistence;
 varying vec2 v_texCoord;
 void main() {
   vec4 newColor = texture2D(newRender, v_texCoord);
@@ -1857,9 +1868,9 @@ void main() {
 
   gl_FragColor =
     vec4(
-      mix(oldColor.g * 0.8, newColor.r, length(newColor.xyz)),
-      mix(oldColor.b * 0.8, newColor.g, length(newColor.xyz)),
-      mix(oldColor.r * 0.8, newColor.b, length(newColor.xyz)),
+      mix(oldColor.g * persistence, newColor.r, length(newColor.xyz)),
+      mix(oldColor.b * persistence, newColor.g, length(newColor.xyz)),
+      mix(oldColor.r * persistence, newColor.b, length(newColor.xyz)),
       1);
 }
 </script>
