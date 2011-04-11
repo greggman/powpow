@@ -11,13 +11,13 @@ function extension(path) {
 
 var getMimeType = function() {
   var mimeTypeMap = {
-    '.jpg': 'image/jpeg',
-    '.png': 'image/png',
-    '.css': 'text/css',
-    '.ogg': 'audio/ogg',
-    '.wav': 'audio/wav',
-    '.mp3': 'audio/mp3',
-    '.js': 'text/javascript',
+    '.jpg':  'image/jpeg',
+    '.png':  'image/png',
+    '.css':  'text/css',
+    '.ogg':  'audio/ogg',
+    '.wav':  'audio/wav',
+    '.mp3':  'audio/mp3',
+    '.js':   'text/javascript',
     '.html': 'text/html'
   };
 
@@ -141,10 +141,17 @@ sys.print("req: " + req.method + '\n');
         if (err) {
           return send404(res);
         }
-        res.writeHead(200, {
-          'Content-Type': mimeType,
-          'Content-Length': data.length})
-        res.write(data);
+        if (startsWith(mimeType, "text")) {
+          res.writeHead(200, {
+            'Content-Type': mimeType + "; charset=utf-8"
+          });
+          res.write(data, "utf8");
+        } else {
+          res.writeHead(200, {
+            'Content-Type': mimeType,
+            'Content-Length': data.length});
+          res.write(data);
+        }
         res.end();
       });
     } else send404(res);
