@@ -1634,7 +1634,7 @@ function main() {
     $("url").innerHTML = "!!DEBUG MODE!! -- Must run from server to play";
   }
 
-  gl = tdl.webgl.setupWebGL(canvas, undefined, function() {});
+  gl = tdl.webgl.setupWebGL(g_canvas, undefined, function() {});
   if (gl) {
     g_renderer = new WebGLRenderer(g_canvas, gl);
   } else {
