@@ -473,7 +473,7 @@ function singleTouchCancel(event) {
 }
 
 function handleKeyDown(keyCode, state) {
-  switch(event.keyCode) {
+  switch(keyCode) {
   case 37: // left
     if (!g_left) {
       g_left = true;
@@ -505,7 +505,7 @@ function handleKeyDown(keyCode, state) {
 }
 
 function handleKeyUp(keyCode, state) {
-  switch(event.keyCode) {
+  switch(keyCode) {
   case 37: // left
     g_left = false;
     sendCmd("update", {
