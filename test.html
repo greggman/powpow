@@ -25,11 +25,21 @@ function $(id) {
   return document.getElementById(id);
 }
 
-function logTo(id, str) {
+var g_logs = {};
+
+
+function log(id, str) {
+  var lines = g_logs[id];
+  if (!lines) {
+    lines = [];
+    g_logs[id] = lines;
+  }
+  while (lines.length > 10) {
+    lines.shift();
+  }
+  lines.push(str);
   var c = document.getElementById(id);
-  var d = document.createElement("div");
-  d.appendChild(document.createTextNode(str));
-  c.appendChild(d);
+  c.innerHTML = lines.join("<br/>");
 }
 
 function log() {
