@@ -1397,9 +1397,10 @@ MetaQueuePlayer.prototype.accumClear = function() {
 };
 
 MetaQueuePlayer.prototype.draw = function(renderer) {
-  renderer.drawShip(
-      this.position, this.direction,
-      {glColor: [1,0,0,1], canvasColor:"rgb(255,0,0)"});
+  // comment in for debug rendering
+  //renderer.drawShip(
+  //    this.position, this.direction,
+  //    {glColor: [1,0,0,1], canvasColor:"rgb(255,0,0)"});
   var a = Math.max(0, Math.min(1, this.fade));
   if (a == 0)
     return;
