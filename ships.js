@@ -23,8 +23,12 @@ var ships = (function(){
   return {
     styles: g_styles,
 
+    // TODO(gman): if we are going to limit the number
+    // of colors and styles then we need to keep track
+    // of which ones are used so if a player stops
+    // playing his color is free to be used by new
+    // players.
     makeColor: function(count) {
-      count += g_startCount;
       var numStyles = g_styles.length;
       var numColors = g_colors.length;
       var style = count % numStyles;
