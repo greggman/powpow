@@ -1124,7 +1124,7 @@ function Player(x, y, direction, clientId, opt_name) {
   if (isMetaQueuePlayer) {
     this.setState('fly');
   } else {
-    if (window.io) {
+    if (window.io || g_activePlayers.length >= 2) {
       this.addToQueue();
     } else {
       this.setState('fly');
@@ -1538,14 +1538,11 @@ function add2D(pos, dx, dy) {
 }
 
 /**
- * Manages the Queue of players waiting.
+ * Manages a visible list of players for like the highscore or queue display.
+ *
  */
-function QueueManager() {
-  this.launching_ = [];
-  this.queue_ = [];
-  this.timer_ = 0;
-
-  this.element_ = $("queue");
+function PListManager(element) {
+  this.element_ = element;
   this.elements_ = [];
 
   var canvas = document.createElement("canvas");
@@ -1557,7 +1554,106 @@ function QueueManager() {
   ctx.globalCompositeOperation = "copy";
   drawShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
   this.shipURL = canvas.toDataURL();
+}
 
+/**
+ * Call before updating the list
+ */
+PListManager.prototype.begin = function() {
+  this.cursor_ = 0;
+};
+
+/**
+ * Call after updating the list
+ */
+PListManager.prototype.end = function() {
+  for (var ii = this.cursor_; ii < this.elements_.length; ++ii) {
+    var element = this.elements_[ii];
+    element.line.style.display = "none";
+  }
+};
+
+
+PListManager.prototype.draw = function() {
+  this.setElements_(0, this.launching_, true);
+  this.setElements_(this.launching_.length, this.queue_, false);
+  for (var ii = this.launching_.length + this.queue_.length;
+       ii < this.elements_.length; ++ii) {
+    var element = this.elements_[ii];
+    element.line.style.display = "none";
+  }
+};
+
+PListManager.prototype.getElement_ = function(index) {
+  var element = this.elements_[index];
+  if (!element) {
+    line = document.createElement("div");
+    line.style.position = "relative";
+    line.style.height = "40px";
+    line.style.display = "block";
+    //line.style.verticalAlign = "middle";
+    var span = document.createElement("div");
+    span.style.width = "32px";
+    span.style.height = "32px";
+    span.style.position = "absolute";
+    span.style.top = "0px";
+    span.style.left = "0px";
+    var img = document.createElement("img");
+    img.src = this.shipURL;
+    img.style.zIndex = 5;
+    img.style.position = "absolute";
+    img.style.top = "0px";
+    img.style.left = "0px";
+    var info = document.createElement("div");
+    info.style.position = "absolute";
+    info.style.top = "4px";
+    info.style.left = "40px";
+    info.style.color = "white";
+    info.style.fontFamily = "sans-serif";
+    info.style.fontSize = "20px";
+    var name = document.createElement("span");
+    var msg = document.createElement("span");
+    info.appendChild(msg);
+    info.appendChild(name);
+    line.appendChild(span);
+    line.appendChild(img);
+    line.appendChild(info);
+    this.element_.appendChild(line);
+    var element = {
+      line: line,
+      span: span,
+      img: img,
+      msg: msg,
+      name: name
+    };
+    this.elements_.push(element);
+  }
+  return element;
+};
+
+PListManager.prototype.setElement = function(player, launching, msg) {
+  var element = this.getElement_(this.cursor_++);
+  element.line.style.display = "block";
+  element.msg.innerHTML = msg;
+  element.name.innerHTML = player.playerName;
+  element.span.style.backgroundColor = player.color.canvasColor;
+  if (launching) {
+    element.name.color = "#f00";
+  } else {
+    element.name.color = "#ff0";
+  }
+};
+
+
+/**
+ * Manages the Queue of players waiting.
+ */
+function QueueManager() {
+  this.launching_ = [];
+  this.queue_ = [];
+  this.timer_ = 0;
+
+  this.plist = new PListManager($("queue"));
 
 //  this.rowHeight_ = 40;
 //  this.canvas_ = $("queue-canvas");
@@ -1625,69 +1721,15 @@ function QueueManager() {
 //};
 
 QueueManager.prototype.draw = function() {
+  this.plist.begin();
   this.setElements_(0, this.launching_, true);
   this.setElements_(this.launching_.length, this.queue_, false);
-  for (var ii = this.launching_.length + this.queue_.length;
-       ii < this.elements_.length; ++ii) {
-    var element = this.elements_[ii];
-    element.line.style.display = "none";
-  }
-};
-
-QueueManager.prototype.getElement_ = function(index) {
-  var element = this.elements_[index];
-  if (!element) {
-    line = document.createElement("div");
-    line.style.position = "relative";
-    line.style.height = "40px";
-    line.style.display = "block";
-    //line.style.verticalAlign = "middle";
-    var span = document.createElement("div");
-    span.style.width = "32px";
-    span.style.height = "32px";
-    span.style.position = "absolute";
-    span.style.top = "0px";
-    span.style.left = "0px";
-    var img = document.createElement("img");
-    img.src = this.shipURL;
-    img.style.zIndex = 5;
-    img.style.position = "absolute";
-    img.style.top = "0px";
-    img.style.left = "0px";
-    var name = document.createElement("div");
-    name.style.position = "absolute";
-    name.style.top = "4px";
-    name.style.left = "40px";
-    name.style.color = "white";
-    name.style.fontFamily = "sans-serif";
-    name.style.fontSize = "20px";
-    line.appendChild(span);
-    line.appendChild(img);
-    line.appendChild(name);
-    this.element_.appendChild(line);
-    var element = {
-      line: line,
-      span: span,
-      img: img,
-      name: name
-    };
-    this.elements_.push(element);
-  }
-  return element;
+  this.plist.end();
 };
 
 QueueManager.prototype.setElements_ = function(index, players, launching) {
   for (var ii = 0; ii < players.length; ++ii) {
-    var player = players[ii];
-    var element = this.getElement_(index + ii);
-    element.line.style.display = "block";
-    element.name.innerHTML = player.playerName;
-    element.span.style.backgroundColor = player.color.canvasColor;
-    if (launching) {
-      element.name.color = "#f00";
-    } else {
-      element.name.color = "#ff0";
-    }
+    this.plist.setElement(players[ii], launching, "");
   }
 };
 
@@ -1934,8 +1976,11 @@ function main() {
 }
 
 function startLocalPlayers() {
+  g_maxActivePlayers = 2;
   var player1 = startPlayer(1);
   var player2 = startPlayer(2);
+  var player3 = startPlayer(3); // in queue
+  var player4 = startPlayer(4); // in queue
   var g_left = false;
   var g_right = false;
   var g_fire = false;
