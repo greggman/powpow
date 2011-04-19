@@ -294,6 +294,7 @@ function CanvasRenderer(canvas) {
   this.explosions = [];
   this.shieldhits = [];
   this.renderCount = 0;
+  this.darkColors = {};
 
   this.shotColors = [
     "#800000",
@@ -307,10 +308,10 @@ function CanvasRenderer(canvas) {
   ];
 
   this.shieldColors = [
-	"#00F",
-	"#88F",
-	"#FFF",
-	"#88F"
+  "#00F",
+  "#88F",
+  "#FFF",
+  "#88F"
   ];
 }
 
@@ -361,7 +362,7 @@ CanvasRenderer.prototype.end = function(elapsedTime) {
     var l = Math.max(0, shieldhit.timer / 1);
     var radius = (1 - (shieldhit.timer / 1)) * 10 + 5;
     ctx.save();
-	ctx.lineWidth = 2;
+  ctx.lineWidth = 2;
     ctx.strokeStyle = "rgba(128,128,255," + l + ")";
     ctx.translate(shieldhit.x, shieldhit.y);
     ctx.beginPath();
@@ -377,7 +378,6 @@ function drawShip(ctx, x, y, direction, color) {
   ctx.rotate(direction);
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.closePath();
   ctx.moveTo(0, 15);
   ctx.lineTo(15, -15);
   ctx.lineTo(0, -10);
@@ -387,8 +387,67 @@ function drawShip(ctx, x, y, direction, color) {
   ctx.restore();
 }
 
+function drawOutlineShip(ctx, x, y, direction, color) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(direction);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, 15);
+  ctx.lineTo(15, -15);
+  ctx.lineTo(0, -10);
+  ctx.lineTo(-15, -15);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+};
+
+function drawTwoToneShip(ctx, x, y, direction, color, darkColor) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(direction);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, 15);
+  ctx.lineTo(15, -15);
+  ctx.lineTo(0, -10);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = darkColor;
+  ctx.beginPath();
+  ctx.moveTo(0, 15);
+  ctx.lineTo(0, -10);
+  ctx.lineTo(-15, -15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
 CanvasRenderer.prototype.drawShip = function(position, direction, color) {
   drawShip(this.ctx, position[0], position[1], direction, color.canvasColor);
+};
+
+CanvasRenderer.prototype.drawOutlineShip = function(
+    position, direction, color) {
+  drawOutlineShip(
+      this.ctx, position[0], position[1], direction, color.canvasColor);
+};
+
+CanvasRenderer.prototype.drawTwoToneShip = function(
+    position, direction, color) {
+  var darkColor = this.darkColors[color.canvasColor];
+  if (!darkColor) {
+    var m = color.canvasColor.match(/rgb\((\d+),(\d+),(\d+)\)/)
+    var darkColor = "rgb(" +
+        Math.floor(parseInt(m[1]) / 2) + "," +
+        Math.floor(parseInt(m[2]) / 2) + "," +
+        Math.floor(parseInt(m[3]) / 2) + ")";
+    this.darkColors[color.canvasColor] = darkColor;
+  }
+  drawTwoToneShip(
+      this.ctx, position[0], position[1], direction, color.canvasColor,
+      darkColor);
 };
 
 CanvasRenderer.prototype.drawShield = function(position, direction, color) {
@@ -446,7 +505,7 @@ function WebGLRenderer(canvas, gl) {
 
   this.gl = gl;
   this.screenDimensions = [2 / this.canvas.width, 2 / this.canvas.height];
-	this.renderCount = 0;
+  this.renderCount = 0;
   this.resize();
   var width = this.canvas.width;
   var height = this.canvas.height;
@@ -468,6 +527,50 @@ function WebGLRenderer(canvas, gl) {
     var program = tdl.programs.loadProgramFromScriptTags(
         "screenVertexShader", "screenFragmentShader");
     return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeTwoToneShip() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  15,
+         15, -15,
+          0, -10,
+          0,  15,
+          0, -10,
+        -15, -15
+      ]),
+      colorMult: new tdl.primitives.AttribBuffer(1, [
+         1, 1, 1, 0.5, 0.5, 0.5
+
+      ]),
+      indices: new tdl.primitives.AttribBuffer(3, [
+        0, 1, 2, 3, 4, 5
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "twoToneVertexShader", "twoToneFragmentShader");
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeOutlineShip() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  15,
+         15, -15,
+          0, -10,
+        -15, -15
+      ]),
+      indices: new tdl.primitives.AttribBuffer(3, [
+        0, 1, 1, 2, 2 , 3, 3, 0
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures, gl.LINES);
   }
 
   function makeShot() {
@@ -496,8 +599,8 @@ function WebGLRenderer(canvas, gl) {
          0, 0,-1, 0,
          0, 1, 0, 0,
          0, 0, 0, 1]);
-		delete arrays.normals;
-		delete arrays.texCoords;
+    delete arrays.normals;
+    delete arrays.texCoords;
     var textures = {
     };
     var program = tdl.programs.loadProgramFromScriptTags(
@@ -613,7 +716,7 @@ function WebGLRenderer(canvas, gl) {
             parameters.acceleration = math.mulVectorVector(
                 parameters.velocity, [speed * -0.001, speed * -0.001, 0]);
         });
-		return tdl.particles.createOneShotManager(emitter, maxExplosions);
+    return tdl.particles.createOneShotManager(emitter, maxExplosions);
   }
 
   function setupShieldhits(particleSystem, maxShieldhits) {
@@ -641,12 +744,14 @@ function WebGLRenderer(canvas, gl) {
             parameters.acceleration = math.mulVectorVector(
                 parameters.velocity, [speed * -0.001, speed * -0.001, 0]);
         });
-		return tdl.particles.createOneShotManager(emitter, maxShieldhits);
+    return tdl.particles.createOneShotManager(emitter, maxShieldhits);
   }
 
   this.ship = makeShip();
+  this.outlineShip = makeOutlineShip();
+  this.twoToneShip = makeTwoToneShip();
   this.shot = makeShot();
-	this.shield = makeShield();
+  this.shield = makeShield();
 
   this.shotColors = [
     new Float32Array([0.5, 0.0, 0.0, 1]),
@@ -721,14 +826,16 @@ WebGLRenderer.prototype.resize = function() {
 };
 
 WebGLRenderer.prototype.begin = function(elapsedTime) {
-	++this.renderCount;
+  ++this.renderCount;
   this.ships = [];
+  this.outlineShips = [];
+  this.twoToneShips = [];
   this.shields = [];
   this.shots = [];
   this.screenDimensions[0] = 2 / this.canvas.width;
   this.screenDimensions[1] = 2 / this.canvas.height;
   this.baseFBO.bind();
-  gl.colorMask(true, true, true, false);
+  gl.colorMask(true, true, true, true);
   gl.depthMask(true);
   gl.clearColor(0,0,0,0);
   gl.clearDepth(1);
@@ -748,7 +855,7 @@ WebGLRenderer.prototype.end = function(elapsedTime) {
 
   // blend base with persist1 into persist2
   this.persistentFBO2.bind();
-  this.persistPlane.drawPrep({persistence: 0.9});
+  this.persistPlane.drawPrep({persistence: 0.1});
   this.persistPlane.draw({oldRender: this.persistentFBO1.texture});
   this.persistentFBO2.unbind();
 
@@ -779,8 +886,27 @@ WebGLRenderer.prototype.drawShip = function(position, direction, color) {
   });
 };
 
-WebGLRenderer.prototype.renderShips = function(info) {
-	this.ship.drawPrep(this.constUniforms);
+WebGLRenderer.prototype.drawOutlineShip = function(position, direction, color) {
+  this.outlineShips.push({
+    x: position[0],
+    y: position[1],
+    direction: direction,
+    color: color.glColor
+  });
+};
+
+WebGLRenderer.prototype.drawTwoToneShip = function(position, direction, color)
+{ this.twoToneShips.push({
+    x: position[0],
+    y: position[1],
+    direction: direction,
+    color: color.glColor
+  });
+};
+
+WebGLRenderer.prototype.drawShips_ = function() {
+  var model = this.ship;
+  model.drawPrep(this.constUniforms);
   for (var ii = 0; ii < this.ships.length; ++ii) {
     var info = this.ships[ii];
     var c = Math.cos(info.direction);
@@ -795,8 +921,75 @@ WebGLRenderer.prototype.renderShips = function(info) {
     m[7] = info.y;
 
     this.uniforms.color = info.color;
-    this.ship.draw(this.uniforms);
+    model.draw(this.uniforms);
   }
+};
+
+WebGLRenderer.prototype.drawOutlineShips_ = function() {
+  var model = this.ship;
+  var black = new Float32Array([0,0,0,1]);
+  this.uniforms.color = black;
+  model.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.outlineShips.length; ++ii) {
+    var info = this.outlineShips[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    model.draw(this.uniforms);
+  }
+  var model = this.outlineShip;
+  model.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.outlineShips.length; ++ii) {
+    var info = this.outlineShips[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    this.uniforms.color = info.color;
+    model.draw(this.uniforms);
+  }
+};
+
+WebGLRenderer.prototype.drawTwoToneShips_ = function() {
+  var model = this.twoToneShip;
+  model.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.twoToneShips.length; ++ii) {
+    var info = this.twoToneShips[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    this.uniforms.color = info.color;
+    model.draw(this.uniforms);
+  }
+};
+
+WebGLRenderer.prototype.renderShips = function(info) {
+  this.drawShips_();
+  this.drawOutlineShips_();
+  this.drawTwoToneShips_();
 };
 
 WebGLRenderer.prototype.drawShield = function(position, direction, color) {
@@ -810,7 +1003,7 @@ WebGLRenderer.prototype.drawShield = function(position, direction, color) {
 
 WebGLRenderer.prototype.renderShields = function() {
   this.shield.drawPrep(this.constUniforms);
-	count = this.renderCount;
+  count = this.renderCount;
   for (var ii = 0; ii < this.shields.length; ++ii) {
     var info = this.shields[ii];
     var c = Math.cos(info.direction);
@@ -890,11 +1083,18 @@ function Player(x, y, direction, clientId, opt_name) {
   this.position = [x, y];
   this.hp = 3;
   this.color = makeColor(g_playerCount);
+  var renderers = [
+    g_renderer.drawShip,
+    g_renderer.drawOutlineShip,
+    g_renderer.drawTwoToneShip
+  ];
+  this.style = tdl.math.randomInt(renderers.length);
   this.send({
     cmd: 'setColor',
-    color: this.color.canvasColor
+    color: this.color.canvasColor,
+    style: this.style
   });
-
+  this.shipRenderFunc = renderers[this.style];
   if (opt_name) {
     this.playerName = opt_name;
   } else {
@@ -914,7 +1114,7 @@ function Player(x, y, direction, clientId, opt_name) {
   this.timer = 0;
   this.launchDuration = 0.5;
   this.showPlaceInQueue = false;
-	this.invincibilityTimer = 0;
+  this.invincibilityTimer = 0;
 
   // If true the player is entering their name.
   // Don't launch them if they are in the queue.
@@ -1104,16 +1304,16 @@ Player.prototype.state_fly = function(elapsedTime) {
     this.shoot();
     this.shootTimer = this.maxShots / this.shotDuration;
   }
-	if (this.invincibilityTimer > 0) {
-		this.invincibilityTimer -= elapsedTime;
+  if (this.invincibilityTimer > 0) {
+    this.invincibilityTimer -= elapsedTime;
   }
 };
 
 Player.prototype.die = function(killer, shot) {
   if (this.invincibilityTimer > 0) {
     audio.play_sound('hitshield');
-		g_renderer.startShieldHit(shot.position);
-		return;
+    g_renderer.startShieldHit(shot.position);
+    return;
   }
   audio.play_sound('explosion');
   this.timer = 2;
@@ -1161,16 +1361,18 @@ Player.prototype.collide = function(x, y, radius) {
 Player.prototype.draw = function(renderer) {
   switch (this.state) {
     case 'fly':
-      renderer.drawShip(this.position, this.direction, this.color);
-			if (this.invincibilityTimer > 0) {
-				renderer.drawShield(this.position, this.direction, this.color);
+      this.shipRenderFunc.call(
+          renderer, this.position, this.direction, this.color);
+      if (this.invincibilityTimer > 0) {
+        renderer.drawShield(this.position, this.direction, this.color);
       }
       return;
     case 'launch':
       var sy = g_canvas.height / 2 + 20;
       var sx = g_canvas.width + 20;
       var t = this.timer / this.launchDuration;
-      renderer.drawShip(
+      this.shipRenderFunc.call(
+          renderer,
           [tdl.math.lerpScalar(this.position[0], sx, t),
            tdl.math.lerpScalar(this.position[1], sy, t)],
           tdl.math.lerpCircular(this.direction, Math.PI, t, Math.PI * 2),
@@ -1650,6 +1852,7 @@ function main() {
   } else {
     g_renderer = new CanvasRenderer(g_canvas);
   }
+//    g_renderer = new CanvasRenderer(g_canvas);
 
   connect();
   sendCmd("server");
@@ -1845,6 +2048,29 @@ void main() {
   gl_FragColor = color;
 }
 </script>
+<script id="twoToneVertexShader" type="whatever">
+uniform mat3 matrix;
+uniform vec2 screenDimensions;
+attribute vec2 position;
+attribute float colorMult;
+varying float v_colorMult;
+
+void main() {
+  vec3 pos = vec3(-1, -1, 0) + matrix * vec3(position, 1) * vec3(screenDimensions, 0);
+  gl_Position = vec4(pos.x, -pos.y, 0, 1);
+  v_colorMult = colorMult;
+}
+</script>
+<script id="twoToneFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform vec4 color;
+varying float v_colorMult;
+void main() {
+  gl_FragColor = color * vec4(v_colorMult, v_colorMult, v_colorMult, 1);
+}
+</script>
 <script id="persistVertexShader" type="whatever">
 attribute vec2 position;
 attribute vec2 texCoord;
@@ -1865,12 +2091,14 @@ varying vec2 v_texCoord;
 void main() {
   vec4 newColor = texture2D(newRender, v_texCoord);
   vec4 oldColor = texture2D(oldRender, v_texCoord);
-
+  float alpha = newColor.a;
+  float mixAmount = length(newColor.xyz) * alpha;
+  mixAmount = mix(persistence, 1.0, alpha);
   gl_FragColor =
     vec4(
-      mix(oldColor.g * persistence, newColor.r, length(newColor.xyz)),
-      mix(oldColor.b * persistence, newColor.g, length(newColor.xyz)),
-      mix(oldColor.r * persistence, newColor.b, length(newColor.xyz)),
+      mix(oldColor.g, newColor.r, mixAmount),
+      mix(oldColor.b, newColor.g, mixAmount),
+      mix(oldColor.r, newColor.b, mixAmount),
       1);
 }
 </script>
