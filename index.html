@@ -122,6 +122,7 @@ html, body {
 <script type="text/javascript" src="../socket.io/socket.io.js"></script>
 <script type="text/javascript" src="tdl/base.js"></script>
 <script>
+tdl.require('audio');
 tdl.require('tdl.log');
 window.onload = main;
 
@@ -141,6 +142,10 @@ var g_canvas;
 var g_startX;
 var g_startY;
 var g_startTime;
+var g_state = ""
+var g_count;
+var g_playerColor;
+var g_playerStyle;
 
 function $(id) {
   return document.getElementById(id);
@@ -232,10 +237,41 @@ function sendCmd(cmd, data) {
   });
 }
 
+
+g_states = {
+  launch: function() {
+    --g_count;
+    var e = $("surface");
+    if (g_count > 0) {
+      e.style.backgroundColor = (g_count % 2) ? "#0f0" : "#fff";
+      setTimeout(process, 100);
+    } else {
+      e.style.backgroundColor = g_playerColor;
+    }
+  },
+
+  die: function() {
+    --g_count;
+    var e = $("surface");
+    if (g_count > 0) {
+      e.style.backgroundColor = (g_count % 2) ? "#f00" : "#ff0";
+      setTimeout(process, 100);
+    } else {
+      e.style.backgroundColor = g_playerColor;
+    }
+  }
+};
+
+function process() {
+  g_states[g_state]();
+};
+
 function processMessage(msg) {
   switch (msg.cmd) {
   case 'setColor':
     var e = $("surface");
+    g_playerColor = msg.color;
+    g_playerStyle = msg.style;
     e.style.backgroundColor = msg.color;
     break;
   case 'setName':
@@ -249,12 +285,20 @@ function processMessage(msg) {
     $('msg').style.color = '#0FF';
     break;
   case 'die':
-    $('msg').innerHTML = 'Killed by ' + msg.killer;
+    audio.play_sound('explosion');
+    $('msg').innerHTML = (msg.crash ? 'Crashed into ' : 'Killed by ') + msg.killer;
     $('msg').style.color = '#F00';
+    g_state = "die";
+    g_count = 20;
+    setTimeout(process, 100);
     break;
   case 'launch':
+    audio.play_sound('launching');
     $('msg').innerHTML = 'Launch!';
     $('msg').style.color = '#FF0';
+    g_state = "launch";
+    g_count = 30;
+    setTimeout(process, 100);
     break;
   case 'queue':
     $('msg').innerHTML = msg.count > 0 ?
@@ -593,6 +637,17 @@ function reloadPage() {
 
 function main() {
   connect();
+
+  audio.init({
+    explosion: {
+      filename: "assets/explosion.ogg",
+      samples: 1,
+    },
+    launching: {
+      filename: "assets/launching.ogg",
+      samples: 1,
+    }
+  });
 
   // Get the name user set before.
   g_name = readCookie("name");

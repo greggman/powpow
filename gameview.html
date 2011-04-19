@@ -1247,14 +1247,14 @@ Player.prototype.checkCollisions = function() {
     // If we are not ourself and we are not the ghost
     if (player.id != this.id) {
       if (player.collide(this.position[0], this.position[1], 5)) {
-        player.die(this, this);
+        player.die(this, this, true);
         hit = player;
       }
     }
   }
   // If we collided with someone
   if (hit && this.invincibilityTimer <= 0) {
-    this.die(player, player);
+    this.die(player, player, true);
   }
 };
 
@@ -1262,7 +1262,7 @@ Player.prototype.checkCollisions = function() {
  * Puts the player in the death state.
  * Returns true if the killer should get a point.
  */
-Player.prototype.die = function(killer, collider) {
+Player.prototype.die = function(killer, collider, crash) {
   if (this.invincibilityTimer > 0) {
     audio.play_sound('hitshield');
     g_renderer.startShieldHit(collider.position);
@@ -1274,12 +1274,15 @@ Player.prototype.die = function(killer, collider) {
   this.removeFromActive();
   this.send({
     cmd: 'die',
-    killer: killer.playerName
+    killer: killer.playerName,
+    crash: crash
   });
-  killer.send({
-    cmd: 'kill',
-    killed: this.playerName
-  });
+  if (!crash) {
+    killer.send({
+      cmd: 'kill',
+      killed: this.playerName
+    });
+  }
   this.showPlaceInQueue = true;
   g_renderer.startExplosion(
       this.position,
@@ -1477,7 +1480,7 @@ Shot.prototype.process = function(elapsedTime) {
       if (player.id != this.owner.id) {
         if (player.collide(this.position[0], this.position[1], 3)) {
           hit = true;
-          if (player.die(this.owner, this)) {
+          if (player.die(this.owner, this, false)) {
             ++this.owner.score;
           }
         }
