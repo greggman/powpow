@@ -1794,22 +1794,20 @@ QueueManager.prototype.process = function(elapsedTime) {
  */
 
 function ScoreManager() {
-  this.element_ = $("highscore");
+  this.plist_ = new PListManager($("highscore"));
   this.maxScores_ = 10;
   this.orderedPlayers_ = [];
-  this.elements_ = [];
-
-  for (var ii = 0; ii < this.maxScores_; ++ii) {
-    var element = document.createElement("div");
-    this.element_.appendChild(element);
-    this.elements_.push(element);
-  }
+  this.zeros_ = "";
 }
 
 ScoreManager.prototype.calculateScores = function() {
   this.orderedPlayers_ = [];
-  for (var id in g_players)
-    this.orderedPlayers_.push(g_players[id]);
+  var maxScore = 0;
+  for (var id in g_players) {
+    var player = g_players[id];
+    this.orderedPlayers_.push(player);
+    maxScore = Math.max(maxScore, player.score);
+  }
 
   this.orderedPlayers_.sort(function(a, b) {
     if (a.score > b.score)
@@ -1824,17 +1822,28 @@ ScoreManager.prototype.calculateScores = function() {
 
   if (this.orderedPlayers_.length > this.maxScores_)
     this.orderedPlayers_.length = this.maxScores_;
+
+  var numDigits = maxScore.toString().length;
+  if (numDigits < this.zeros_.length) {
+    this.zeros_ = this.zeros_.substr(0, numDigits);
+  } else {
+    while (this.zeros_.length < numDigits) {
+      this.zeros_ += "0";
+    }
+  }
 };
 
 ScoreManager.prototype.drawScores = function() {
+  this.plist_.begin();
   for (var ii = 0; ii < this.orderedPlayers_.length; ++ii) {
     var player = this.orderedPlayers_[ii];
-    this.elements_[ii].innerHTML =
-      (player.score < 10 ? '0' : '') + player.score + ": " + player.playerName;
+    var score = player.score.toString();
+    if (score.length < this.zeros_.length) {
+      score = score + this.zeros_.substr(score.length);
+    }
+    this.plist_.setElement(player, false, score + ": ");
   }
-  for (var ii = this.orderedPlayers_.length; ii < this.maxScores_; ++ii) {
-    this.elements_[ii].innerHTML = "";
-  }
+  this.plist_.end();
 };
 
 ScoreManager.prototype.update = function() {
