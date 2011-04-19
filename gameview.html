@@ -400,13 +400,27 @@ CanvasRenderer.prototype.drawShot = function(position, count) {
   ctx.translate(position[0], position[1]);
   ctx.fillStyle = this.shotColors[count % this.shotColors.length];
   ctx.beginPath();
-  ctx.closePath();
   ctx.moveTo(0, 5);
   ctx.lineTo(5, 0);
   ctx.lineTo(0, -5);
   ctx.lineTo(-5, 0);
   ctx.closePath();
   ctx.fill();
+  ctx.restore();
+};
+
+CanvasRenderer.prototype.drawLeadMark = function(position, direction, color) {
+  var ctx = this.ctx;
+  ctx.save();
+  ctx.translate(position[0] + 15, position[1] - 15);
+  ctx.strokeStyle = color.canvasColor;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0,-10);
+  ctx.lineTo(10, 0);
+  ctx.lineTo(0, 0);
+  ctx.lineTo(30, -30);
+  ctx.stroke();
   ctx.restore();
 };
 
@@ -441,6 +455,26 @@ function WebGLRenderer(canvas, gl) {
   this.resize();
   var width = this.canvas.width;
   var height = this.canvas.height;
+
+  function makeLeadMark() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(
+        2, [
+          0,   0,
+          0, -10,
+         10,   0,
+         30, -30,
+      ]),
+      indices: new tdl.primitives.AttribBuffer(2, [
+        0, 1, 1, 2, 2, 0, 0, 3
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures, gl.LINES);
+  }
 
   function makeShip() {
     var arrays = {
@@ -494,8 +528,8 @@ function WebGLRenderer(canvas, gl) {
           0, -10,
         -15, -15
       ]),
-      indices: new tdl.primitives.AttribBuffer(3, [
-        0, 1, 1, 2, 2 , 3, 3, 0
+      indices: new tdl.primitives.AttribBuffer(2, [
+        0, 1, 1, 2, 2, 3, 3, 0
       ], 'Uint16Array')
     }
     var textures = {
@@ -684,6 +718,7 @@ function WebGLRenderer(canvas, gl) {
   this.twoToneShip = makeTwoToneShip();
   this.shot = makeShot();
   this.shield = makeShield();
+  this.leadMark = makeLeadMark();
 
   this.shotColors = [
     new Float32Array([0.5, 0.0, 0.0, 1]),
@@ -735,6 +770,7 @@ function WebGLRenderer(canvas, gl) {
       this.baseFBO.texture, this.persistentFBO1.texture);
 
   this.lastPlane = makeLastPlane(this.persistentFBO2.texture);
+  this.leadMarkInfo = {on:false,x:0,y:0,direction:0,color:[1,1,1,1]};
 }
 
 WebGLRenderer.prototype.resize = function() {
@@ -759,6 +795,7 @@ WebGLRenderer.prototype.resize = function() {
 
 WebGLRenderer.prototype.begin = function(elapsedTime) {
   ++this.renderCount;
+  this.leadMarkInfo.on = false;
   this.ships = [];
   this.outlineShips = [];
   this.twoToneShips = [];
@@ -800,6 +837,8 @@ WebGLRenderer.prototype.end = function(elapsedTime) {
   this.lastPlane.drawPrep();
   this.lastPlane.draw({texture: this.persistentFBO2.texture});
   this.starParticleSystem.draw(this.projection, this.world, this.viewInverse);
+  var lm = this.leadMarkInfo;
+  this.drawLeadMark_([lm.x, lm.y], lm.direction, lm.color);
   gl.disable(gl.DEPTH_TEST);
   gl.disable(gl.BLEND);
 
@@ -920,6 +959,20 @@ WebGLRenderer.prototype.drawTwoToneShips_ = function() {
   }
 };
 
+WebGLRenderer.prototype.drawLeadMark_ = function(position, direction, color) {
+  this.leadMark.drawPrep(this.constUniforms);
+  var m = this.matrix;
+  m[0] = 1;
+  m[1] = 0;
+  m[3] = 0;
+  m[4] = 1;
+  m[6] = position[0] + 15;
+  m[7] = position[1] - 15;
+
+  this.uniforms.color = color;
+  this.leadMark.draw(this.uniforms);
+};
+
 WebGLRenderer.prototype.renderShips = function(info) {
   this.drawShips_();
   this.drawOutlineShips_();
@@ -933,6 +986,14 @@ WebGLRenderer.prototype.drawShield = function(position, direction, color) {
     direction: direction,
     color: color.glColor
   });
+};
+
+WebGLRenderer.prototype.drawLeadMark = function(position, direction, color) {
+  var lm = this.leadMarkInfo;
+  lm.x = position[0];
+  lm.y = position[1];
+  lm.direction = direction;
+  lm.color = color.glColor;
 };
 
 WebGLRenderer.prototype.renderShields = function() {
@@ -1852,6 +1913,17 @@ ScoreManager.prototype.update = function() {
   this.drawScores();
 };
 
+ScoreManager.prototype.draw = function(renderer) {
+  if (this.orderedPlayers_.length > 1 &&
+      this.orderedPlayers_[0].score > this.orderedPlayers_[1].score) {
+    var lead = this.orderedPlayers_[0];
+    renderer.drawLeadMark(
+        lead.position, lead.direction,
+        {glColor: new Float32Array([1,0,0,1]), canvasColor:"rgb(255,0,0)"});
+
+  }
+};
+
 /**
  * Processes and Draws all the entities.
  * An entity is currently losely defined as any object that has
@@ -1971,7 +2043,7 @@ function main() {
     }
 
     //g_queueMgr.draw();
-
+    g_scoreMgr.draw(g_renderer);
     g_renderer.end(elapsedTime);
 
     if (g_updateStatus) {
