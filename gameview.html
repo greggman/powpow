@@ -271,65 +271,6 @@ function updatePlayer(id, msg) {
   player.update(msg);
 }
 
-var g_colors = [
-  [1.0, 0.0, 0.0],
-  [1.0, 1.0, 0.0],
-  [0.0, 1.0, 0.0],
-  [0.0, 1.0, 1.0],
-  [0.0, 0.0, 1.0],
-  [1.0, 0.0, 1.0],
-  [1.0, 0.5, 0.5],
-  [1.0, 1.0, 0.5],
-  [0.5, 1.0, 0.5],
-  [0.5, 1.0, 1.0],
-  [0.5, 0.5, 1.0],
-  [1.0, 0.5, 1.0]
-];
-var g_styles = [
-  "drawShip",
-  "drawOutlineShip",
-  "drawTwoToneShip"
-];
-
-
-function makeColor(count) {
-  count += g_startCount;
-  var numStyles = g_styles.length;
-  var numColors = g_colors.length;
-  var style = count % numStyles;
-  var colorNdx = count % numColors;
-
-  //var color = [
-  //  (count * 0.31) % 1,
-  //  (count * 5.73) % 1,
-  //  (count * 7.89) % 1,
-  //  1,
-  //];
-  //var canvasColor = [];
-  //var ci = count % 3;
-  //for (var ii = 0; ii < 3; ++ii) {
-  //  var ndx = (ii + ci) % 3;
-  //  var mix = (ii == 0) ? 0.2 : 0.6;
-  //  var max = (ii == 0) ? 1 : 0.6;
-  //  color[ndx] = color[ndx] * mix + (1 - mix) * max;
-  //  canvasColor[ndx] = Math.floor(color[ndx] * 255);
-  //}
-
-  var c = g_colors[colorNdx];
-  var color = new Float32Array([0,0,0,1]);
-  var canvasColor = [];
-  for (var ii = 0; ii < 3; ++ii) {
-    color[ii] = c[ii];
-    canvasColor[ii] = Math.floor(c[ii] * 255);
-  }
-
-  return {
-      style: style,
-      glColor: color,
-      canvasColor: "rgb(" + canvasColor.join(",") + ")"
-  };
-}
-
 function CanvasRenderer(canvas) {
   this.canvas = canvas;
   this.ctx = canvas.getContext("2d");
@@ -415,12 +356,13 @@ CanvasRenderer.prototype.end = function(elapsedTime) {
 };
 
 CanvasRenderer.prototype.drawShip = function(position, direction, color) {
-  drawShip(this.ctx, position[0], position[1], direction, color.canvasColor);
+  ships.drawShip(
+      this.ctx, position[0], position[1], direction, color.canvasColor);
 };
 
 CanvasRenderer.prototype.drawOutlineShip = function(
     position, direction, color) {
-  drawOutlineShip(
+  ships.drawOutlineShip(
       this.ctx, position[0], position[1], direction, color.canvasColor);
 };
 
@@ -435,7 +377,7 @@ CanvasRenderer.prototype.drawTwoToneShip = function(
         Math.floor(parseInt(m[3]) / 2) + ")";
     this.darkColors[color.canvasColor] = darkColor;
   }
-  drawTwoToneShip(
+  ships.drawTwoToneShip(
       this.ctx, position[0], position[1], direction, color.canvasColor,
       darkColor);
 };
@@ -876,7 +818,8 @@ WebGLRenderer.prototype.drawShip = function(position, direction, color) {
   });
 };
 
-WebGLRenderer.prototype.drawOutlineShip = function(position, direction, color) {
+WebGLRenderer.prototype.drawOutlineShip = function(
+    position, direction, color) {
   this.outlineShips.push({
     x: position[0],
     y: position[1],
@@ -885,8 +828,9 @@ WebGLRenderer.prototype.drawOutlineShip = function(position, direction, color) {
   });
 };
 
-WebGLRenderer.prototype.drawTwoToneShip = function(position, direction, color)
-{ this.twoToneShips.push({
+WebGLRenderer.prototype.drawTwoToneShip = function(
+    position, direction, color) {
+  this.twoToneShips.push({
     x: position[0],
     y: position[1],
     direction: direction,
@@ -1072,7 +1016,7 @@ function Player(x, y, direction, clientId, opt_name) {
   this.isMetaQueuePlayer = isMetaQueuePlayer;
   this.position = [x, y];
   this.hp = 3;
-  this.color = makeColor(g_playerCount);
+  this.color = ships.makeColor(g_playerCount);
   this.send({
     cmd: 'setColor',
     color: this.color.canvasColor,
@@ -1368,7 +1312,7 @@ Player.prototype.collide = function(x, y, radius) {
 };
 
 Player.prototype.draw = function(renderer) {
-  var shipRenderFunc = renderer[g_styles[this.color.style]];
+  var shipRenderFunc = renderer[ships.styles[this.color.style]];
 
   switch (this.state) {
     case 'fly':
@@ -1589,13 +1533,14 @@ function PListManager(element) {
   ctx.fillStyle = "#008";
   ctx.globalCompositeOperation = "copy";
   ctx.fillRect(0, 0, 32, 32);
-  drawShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
+  ships.drawShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
   this.shipURLs_.push(canvas.toDataURL());
   ctx.fillRect(0, 0, 32, 32);
-  drawOutlineShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
+  ships.drawOutlineShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
   this.shipURLs_.push(canvas.toDataURL());
   ctx.fillRect(0, 0, 32, 32);
-  drawTwoToneShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)", "rgba(0,0,0,0.5)");
+  ships.drawTwoToneShip(
+      ctx, 16, 16, Math.PI, "rgba(0,0,0,0)", "rgba(0,0,0,0.5)");
   this.shipURLs_.push(canvas.toDataURL());
 }
 
