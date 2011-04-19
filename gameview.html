@@ -109,6 +109,7 @@ var g_debug = false;
 var g_logGLCalls = false;
 var g_renderer;
 var g_updateStatus = false;
+var g_startCount = Math.floor(Math.random() * 100);
 
 // g_debug = true;
 // g_logGLCalls = true;
@@ -270,23 +271,63 @@ function updatePlayer(id, msg) {
   player.update(msg);
 }
 
+var g_colors = [
+  [1.0, 0.0, 0.0],
+  [1.0, 1.0, 0.0],
+  [0.0, 1.0, 0.0],
+  [0.0, 1.0, 1.0],
+  [0.0, 0.0, 1.0],
+  [1.0, 0.0, 1.0],
+  [1.0, 0.5, 0.5],
+  [1.0, 1.0, 0.5],
+  [0.5, 1.0, 0.5],
+  [0.5, 1.0, 1.0],
+  [0.5, 0.5, 1.0],
+  [1.0, 0.5, 1.0]
+];
+var g_styles = [
+  "drawShip",
+  "drawOutlineShip",
+  "drawTwoToneShip"
+];
+
+
 function makeColor(count) {
-  var color = [
-    (count * 0.31) % 1,
-    (count * 5.73) % 1,
-    (count * 7.89) % 1,
-    1,
-  ];
+  count += g_startCount;
+  var numStyles = g_styles.length;
+  var numColors = g_colors.length;
+  var style = count % numStyles;
+  var colorNdx = count % numColors;
+
+  //var color = [
+  //  (count * 0.31) % 1,
+  //  (count * 5.73) % 1,
+  //  (count * 7.89) % 1,
+  //  1,
+  //];
+  //var canvasColor = [];
+  //var ci = count % 3;
+  //for (var ii = 0; ii < 3; ++ii) {
+  //  var ndx = (ii + ci) % 3;
+  //  var mix = (ii == 0) ? 0.2 : 0.6;
+  //  var max = (ii == 0) ? 1 : 0.6;
+  //  color[ndx] = color[ndx] * mix + (1 - mix) * max;
+  //  canvasColor[ndx] = Math.floor(color[ndx] * 255);
+  //}
+
+  var c = g_colors[colorNdx];
+  var color = new Float32Array([0,0,0,1]);
   var canvasColor = [];
-  var ci = count % 3;
   for (var ii = 0; ii < 3; ++ii) {
-    var ndx = (ii + ci) % 3;
-    var mix = (ii == 0) ? 0.2 : 0.6;
-    var max = (ii == 0) ? 1 : 0.6;
-    color[ndx] = color[ndx] * mix + (1 - mix) * max;
-    canvasColor[ndx] = Math.floor(color[ndx] * 255);
+    color[ii] = c[ii];
+    canvasColor[ii] = Math.floor(c[ii] * 255);
   }
-  return {glColor: color, canvasColor: "rgb(" + canvasColor.join(",") + ")"};
+
+  return {
+      style: style,
+      glColor: color,
+      canvasColor: "rgb(" + canvasColor.join(",") + ")"
+  };
 }
 
 function CanvasRenderer(canvas) {
@@ -1032,18 +1073,11 @@ function Player(x, y, direction, clientId, opt_name) {
   this.position = [x, y];
   this.hp = 3;
   this.color = makeColor(g_playerCount);
-  var renderers = [
-    g_renderer.drawShip,
-    g_renderer.drawOutlineShip,
-    g_renderer.drawTwoToneShip
-  ];
-  this.style = tdl.math.randomInt(renderers.length);
   this.send({
     cmd: 'setColor',
     color: this.color.canvasColor,
-    style: this.style
+    style: this.color.style
   });
-  this.shipRenderFunc = renderers[this.style];
   if (opt_name) {
     this.playerName = opt_name;
   } else {
@@ -1334,9 +1368,11 @@ Player.prototype.collide = function(x, y, radius) {
 };
 
 Player.prototype.draw = function(renderer) {
+  var shipRenderFunc = renderer[g_styles[this.color.style]];
+
   switch (this.state) {
     case 'fly':
-      this.shipRenderFunc.call(
+      shipRenderFunc.call(
           renderer, this.position, this.direction, this.color);
       if (this.invincibilityTimer > 0) {
         renderer.drawShield(this.position, this.direction, this.color);
@@ -1346,7 +1382,7 @@ Player.prototype.draw = function(renderer) {
       var sy = g_canvas.height / 2 + 20;
       var sx = g_canvas.width + 20;
       var t = this.timer / this.launchDuration;
-      this.shipRenderFunc.call(
+      shipRenderFunc.call(
           renderer,
           [tdl.math.lerpScalar(this.position[0], sx, t),
            tdl.math.lerpScalar(this.position[1], sy, t)],
@@ -1451,6 +1487,9 @@ MetaQueuePlayer.prototype.state_fly = function(elapsedTime) {
 MetaQueuePlayer.prototype.state_die = function(elapsedTime) {
   this.fade -= elapsedTime * this.fadeOutRate;
   if (this.timesUp(elapsedTime)) {
+    this.position[0] = Math.random() * g_canvas.width;
+    this.position[1] = Math.random() * g_canvas.height;
+    this.direction = Math.random() * Math.PI * 2;
     this.setState('fly');
   }
 };
@@ -1640,7 +1679,7 @@ PListManager.prototype.getShipImg_ = function(style) {
 };
 
 PListManager.prototype.setElement = function(player, launching, msg) {
-  var img = this.getShipImg_(player.style);
+  var img = this.getShipImg_(player.color.style);
   var element = this.getElement_(this.cursor_++);
   var child = element.img.firstChild;
   if (child) {
