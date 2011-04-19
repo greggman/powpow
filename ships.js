@@ -19,6 +19,8 @@ var ships = (function(){
     "drawOutlineShip",
     "drawTwoToneShip"
   ];
+  var g_darkColors = {
+  };
 
   return {
     styles: g_styles,
@@ -96,7 +98,18 @@ var ships = (function(){
       ctx.restore();
     },
 
-    drawTwoToneShip: function(ctx, x, y, direction, color, darkColor) {
+    drawTwoToneShip: function(ctx, x, y, direction, color, opt_darkColor) {
+      if (!opt_darkColor) {
+        opt_darkColor = g_darkColors[color];
+        if (!opt_darkColor) {
+          var m = color.match(/rgb\((\d+),(\d+),(\d+)\)/)
+          opt_darkColor = "rgb(" +
+              Math.floor(parseInt(m[1]) / 2) + "," +
+              Math.floor(parseInt(m[2]) / 2) + "," +
+              Math.floor(parseInt(m[3]) / 2) + ")";
+          g_darkColors[color] = opt_darkColor;
+        }
+      }
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(direction);
@@ -107,7 +120,7 @@ var ships = (function(){
       ctx.lineTo(0, -10);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = darkColor;
+      ctx.fillStyle = opt_darkColor;
       ctx.beginPath();
       ctx.moveTo(0, 15);
       ctx.lineTo(0, -10);
