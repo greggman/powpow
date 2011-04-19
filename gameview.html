@@ -1544,16 +1544,25 @@ function add2D(pos, dx, dy) {
 function PListManager(element) {
   this.element_ = element;
   this.elements_ = [];
+  this.shipImages_ = [];
+  this.shipImageCursors_ = [];
+  this.shipURLs_ = [];
 
   var canvas = document.createElement("canvas");
   canvas.width = 32;
   canvas.height = 32;
   var ctx = canvas.getContext("2d");
   ctx.fillStyle = "#008";
-  ctx.fillRect(0, 0, 32, 32);
   ctx.globalCompositeOperation = "copy";
+  ctx.fillRect(0, 0, 32, 32);
   drawShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
-  this.shipURL = canvas.toDataURL();
+  this.shipURLs_.push(canvas.toDataURL());
+  ctx.fillRect(0, 0, 32, 32);
+  drawOutlineShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
+  this.shipURLs_.push(canvas.toDataURL());
+  ctx.fillRect(0, 0, 32, 32);
+  drawTwoToneShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)", "rgba(0,0,0,0.5)");
+  this.shipURLs_.push(canvas.toDataURL());
 }
 
 /**
@@ -1561,6 +1570,7 @@ function PListManager(element) {
  */
 PListManager.prototype.begin = function() {
   this.cursor_ = 0;
+  this.shipImageCursors_ = [0, 0, 0];
 };
 
 /**
@@ -1568,17 +1578,6 @@ PListManager.prototype.begin = function() {
  */
 PListManager.prototype.end = function() {
   for (var ii = this.cursor_; ii < this.elements_.length; ++ii) {
-    var element = this.elements_[ii];
-    element.line.style.display = "none";
-  }
-};
-
-
-PListManager.prototype.draw = function() {
-  this.setElements_(0, this.launching_, true);
-  this.setElements_(this.launching_.length, this.queue_, false);
-  for (var ii = this.launching_.length + this.queue_.length;
-       ii < this.elements_.length; ++ii) {
     var element = this.elements_[ii];
     element.line.style.display = "none";
   }
@@ -1598,8 +1597,7 @@ PListManager.prototype.getElement_ = function(index) {
     span.style.position = "absolute";
     span.style.top = "0px";
     span.style.left = "0px";
-    var img = document.createElement("img");
-    img.src = this.shipURL;
+    var img = document.createElement("span");
     img.style.zIndex = 5;
     img.style.position = "absolute";
     img.style.top = "0px";
@@ -1631,8 +1629,29 @@ PListManager.prototype.getElement_ = function(index) {
   return element;
 };
 
+PListManager.prototype.getShipImg_ = function(style) {
+  var images = this.shipImages_[style];
+  if (!images) {
+    images = [];
+    this.shipImages_[style] = images;
+  }
+  var img = images[this.shipImageCursors_[style]++];
+  if (!img) {
+    img = document.createElement("img");
+    img.src = this.shipURLs_[style];
+    images.push(img);
+  }
+  return img;
+};
+
 PListManager.prototype.setElement = function(player, launching, msg) {
+  var img = this.getShipImg_(player.style);
   var element = this.getElement_(this.cursor_++);
+  var child = element.img.firstChild;
+  if (child) {
+    element.img.removeChild(child);
+  }
+  element.img.appendChild(img);
   element.line.style.display = "block";
   element.msg.innerHTML = msg;
   element.name.innerHTML = player.playerName;
