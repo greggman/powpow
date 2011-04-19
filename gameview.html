@@ -1016,7 +1016,7 @@ function Player(x, y, direction, clientId, opt_name) {
   this.isMetaQueuePlayer = isMetaQueuePlayer;
   this.position = [x, y];
   this.hp = 3;
-  this.color = ships.makeColor(g_playerCount);
+  this.color = ships.makeColor(g_playerCount + g_startCount);
   this.send({
     cmd: 'setColor',
     color: this.color.canvasColor,
