@@ -843,7 +843,7 @@ WebGLRenderer.prototype.end = function(elapsedTime) {
   gl.colorMask(true, true, true, false);
   gl.clearColor(0,0,0,0);
   gl.clearDepth(1);
-  gl.depthMask(true);  // Bug in Chrome?
+  gl.depthMask(true);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
   this.lastPlane.drawPrep();
   this.lastPlane.draw({texture: this.persistentFBO2.texture});
@@ -1603,6 +1603,7 @@ function PListManager(element) {
   this.shipImages_ = [];
   this.shipImageCursors_ = [];
   this.shipURLs_ = [];
+  this.elementHeight_;
 
   var canvas = document.createElement("canvas");
   canvas.width = 32;
@@ -1628,6 +1629,8 @@ function PListManager(element) {
 PListManager.prototype.begin = function() {
   this.cursor_ = 0;
   this.shipImageCursors_ = [0, 0, 0];
+  this.maxHeight_ = this.element_.clientHeight;
+  this.height_ = 0;
 };
 
 /**
@@ -1681,6 +1684,9 @@ PListManager.prototype.getElement_ = function(index) {
       msg: msg,
       name: name
     };
+    if (!this.elementHeight_) {
+      this.elementHeight_ = line.clientHeight;
+    }
     this.elements_.push(element);
   }
   return element;
@@ -1702,21 +1708,24 @@ PListManager.prototype.getShipImg_ = function(style) {
 };
 
 PListManager.prototype.setElement = function(player, launching, msg) {
-  var img = this.getShipImg_(player.color.style);
-  var element = this.getElement_(this.cursor_++);
-  var child = element.img.firstChild;
-  if (child) {
-    element.img.removeChild(child);
-  }
-  element.img.appendChild(img);
-  element.line.style.display = "block";
-  element.msg.innerHTML = msg;
-  element.name.innerHTML = player.playerName;
-  element.span.style.backgroundColor = player.color.canvasColor;
-  if (launching) {
-    element.name.color = "#f00";
-  } else {
-    element.name.color = "#ff0";
+  this.height_ += (this.elementHeight_ || 0);
+  if (this.height_ <= this.maxHeight_) {
+    var img = this.getShipImg_(player.color.style);
+    var element = this.getElement_(this.cursor_++);
+    var child = element.img.firstChild;
+    if (child) {
+      element.img.removeChild(child);
+    }
+    element.img.appendChild(img);
+    element.line.style.display = "block";
+    element.msg.innerHTML = msg;
+    element.name.innerHTML = player.playerName;
+    element.span.style.backgroundColor = player.color.canvasColor;
+    if (launching) {
+      element.name.color = "#f00";
+    } else {
+      element.name.color = "#ff0";
+    }
   }
 };
 
@@ -1911,6 +1920,7 @@ ScoreManager.prototype.calculateScores = function() {
 
 ScoreManager.prototype.drawScores = function() {
   this.plist_.begin();
+
   for (var ii = 0; ii < this.orderedPlayers_.length; ++ii) {
     var player = this.orderedPlayers_[ii];
     var score = player.score.toString();
