@@ -307,10 +307,10 @@ function CanvasRenderer(canvas) {
   ];
 
   this.shieldColors = [
-	"#00F",
-	"#88F",
-	"#FFF",
-	"#88F"
+    "#00F",
+    "#88F",
+    "#FFF",
+    "#88F"
   ];
 }
 
@@ -361,7 +361,7 @@ CanvasRenderer.prototype.end = function(elapsedTime) {
     var l = Math.max(0, shieldhit.timer / 1);
     var radius = (1 - (shieldhit.timer / 1)) * 10 + 5;
     ctx.save();
-	ctx.lineWidth = 2;
+    ctx.lineWidth = 2;
     ctx.strokeStyle = "rgba(128,128,255," + l + ")";
     ctx.translate(shieldhit.x, shieldhit.y);
     ctx.beginPath();
@@ -446,7 +446,7 @@ function WebGLRenderer(canvas, gl) {
 
   this.gl = gl;
   this.screenDimensions = [2 / this.canvas.width, 2 / this.canvas.height];
-	this.renderCount = 0;
+  this.renderCount = 0;
   this.resize();
   var width = this.canvas.width;
   var height = this.canvas.height;
@@ -496,8 +496,8 @@ function WebGLRenderer(canvas, gl) {
          0, 0,-1, 0,
          0, 1, 0, 0,
          0, 0, 0, 1]);
-		delete arrays.normals;
-		delete arrays.texCoords;
+    delete arrays.normals;
+    delete arrays.texCoords;
     var textures = {
     };
     var program = tdl.programs.loadProgramFromScriptTags(
@@ -613,7 +613,7 @@ function WebGLRenderer(canvas, gl) {
             parameters.acceleration = math.mulVectorVector(
                 parameters.velocity, [speed * -0.001, speed * -0.001, 0]);
         });
-		return tdl.particles.createOneShotManager(emitter, maxExplosions);
+    return tdl.particles.createOneShotManager(emitter, maxExplosions);
   }
 
   function setupShieldhits(particleSystem, maxShieldhits) {
@@ -641,12 +641,12 @@ function WebGLRenderer(canvas, gl) {
             parameters.acceleration = math.mulVectorVector(
                 parameters.velocity, [speed * -0.001, speed * -0.001, 0]);
         });
-		return tdl.particles.createOneShotManager(emitter, maxShieldhits);
+    return tdl.particles.createOneShotManager(emitter, maxShieldhits);
   }
 
   this.ship = makeShip();
   this.shot = makeShot();
-	this.shield = makeShield();
+  this.shield = makeShield();
 
   this.shotColors = [
     new Float32Array([0.5, 0.0, 0.0, 1]),
@@ -721,7 +721,7 @@ WebGLRenderer.prototype.resize = function() {
 };
 
 WebGLRenderer.prototype.begin = function(elapsedTime) {
-	++this.renderCount;
+  ++this.renderCount;
   this.ships = [];
   this.shields = [];
   this.shots = [];
@@ -780,7 +780,7 @@ WebGLRenderer.prototype.drawShip = function(position, direction, color) {
 };
 
 WebGLRenderer.prototype.renderShips = function(info) {
-	this.ship.drawPrep(this.constUniforms);
+  this.ship.drawPrep(this.constUniforms);
   for (var ii = 0; ii < this.ships.length; ++ii) {
     var info = this.ships[ii];
     var c = Math.cos(info.direction);
@@ -914,7 +914,7 @@ function Player(x, y, direction, clientId, opt_name) {
   this.timer = 0;
   this.launchDuration = 0.5;
   this.showPlaceInQueue = false;
-	this.invincibilityTimer = 0;
+  this.invincibilityTimer = 0;
 
   // If true the player is entering their name.
   // Don't launch them if they are in the queue.
@@ -1104,16 +1104,16 @@ Player.prototype.state_fly = function(elapsedTime) {
     this.shoot();
     this.shootTimer = this.maxShots / this.shotDuration;
   }
-	if (this.invincibilityTimer > 0) {
-		this.invincibilityTimer -= elapsedTime;
+  if (this.invincibilityTimer > 0) {
+    this.invincibilityTimer -= elapsedTime;
   }
 };
 
 Player.prototype.die = function(killer, shot) {
   if (this.invincibilityTimer > 0) {
     audio.play_sound('hitshield');
-		g_renderer.startShieldHit(shot.position);
-		return;
+    g_renderer.startShieldHit(shot.position);
+    return;
   }
   audio.play_sound('explosion');
   this.timer = 2;
@@ -1162,8 +1162,8 @@ Player.prototype.draw = function(renderer) {
   switch (this.state) {
     case 'fly':
       renderer.drawShip(this.position, this.direction, this.color);
-			if (this.invincibilityTimer > 0) {
-				renderer.drawShield(this.position, this.direction, this.color);
+      if (this.invincibilityTimer > 0) {
+        renderer.drawShield(this.position, this.direction, this.color);
       }
       return;
     case 'launch':
