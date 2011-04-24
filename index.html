@@ -604,6 +604,7 @@ function enterName(event) {
   $('msg').style.display = "none";
   $('msg').style.color = "#FFF";
   $('input').style.display = "block";
+  $('input').focus();
   sendCmd("update", {
       cmd: 'busy',
       busy: true
