@@ -75,6 +75,7 @@ html, body {
 </style>
 <!-- Note: Socket IO is served from the socket io based server -->
 <script type="text/javascript" src="socket.io/socket.io.js"></script>
+<script type="text/javascript" src="ships.js"></script>
 <script type="text/javascript" src="tdl/base.js"></script>
 <script>
 tdl.require('audio');
@@ -92,7 +93,6 @@ tdl.require('tdl.webgl');
 
 window.onload = main;
 
-var g_maxActivePlayers = 6;
 var g_playerCount = 1;
 var g_totalPlayerCount = 0;
 var g_canvas;
@@ -108,6 +108,19 @@ var g_debug = false;
 var g_logGLCalls = false;
 var g_renderer;
 var g_updateStatus = false;
+var g_startCount = Math.floor(Math.random() * 100);
+
+// You can set these from the URL with
+// http://path/gameview.html?settings={name:value,name:value}
+var g = {
+  maxActivePlayers: 6,
+  playerVelocity: 200,
+  playerTurnVelocity: Math.PI * 0.5,
+  invincibilityDuration: 3,
+  maxShots: 2,
+  shotDuration: 3,
+  shotVelocity: 300,
+};
 
 // g_debug = true;
 // g_logGLCalls = true;
@@ -269,31 +282,13 @@ function updatePlayer(id, msg) {
   player.update(msg);
 }
 
-function makeColor(count) {
-  var color = [
-    (count * 0.31) % 1,
-    (count * 5.73) % 1,
-    (count * 7.89) % 1,
-    1,
-  ];
-  var canvasColor = [];
-  var ci = count % 3;
-  for (var ii = 0; ii < 3; ++ii) {
-    var ndx = (ii + ci) % 3;
-    var mix = (ii == 0) ? 0.2 : 0.6;
-    var max = (ii == 0) ? 1 : 0.6;
-    color[ndx] = color[ndx] * mix + (1 - mix) * max;
-    canvasColor[ndx] = Math.floor(color[ndx] * 255);
-  }
-  return {glColor: color, canvasColor: "rgb(" + canvasColor.join(",") + ")"};
-}
-
 function CanvasRenderer(canvas) {
   this.canvas = canvas;
   this.ctx = canvas.getContext("2d");
   this.explosions = [];
   this.shieldhits = [];
   this.renderCount = 0;
+  this.darkColors = {};
 
   this.shotColors = [
     "#800000",
@@ -371,24 +366,31 @@ CanvasRenderer.prototype.end = function(elapsedTime) {
   }
 };
 
-function drawShip(ctx, x, y, direction, color) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(direction);
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.closePath();
-  ctx.moveTo(0, 15);
-  ctx.lineTo(15, -15);
-  ctx.lineTo(0, -10);
-  ctx.lineTo(-15, -15);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
-}
-
 CanvasRenderer.prototype.drawShip = function(position, direction, color) {
-  drawShip(this.ctx, position[0], position[1], direction, color.canvasColor);
+  ships.drawShip(
+      this.ctx, position[0], position[1], direction, color.canvasColor);
+};
+
+CanvasRenderer.prototype.drawOutlineShip = function(
+    position, direction, color) {
+  ships.drawOutlineShip(
+      this.ctx, position[0], position[1], direction, color.canvasColor);
+};
+
+CanvasRenderer.prototype.drawTwoToneShip = function(
+    position, direction, color) {
+  var darkColor = this.darkColors[color.canvasColor];
+  if (!darkColor) {
+    var m = color.canvasColor.match(/rgb\((\d+),(\d+),(\d+)\)/)
+    var darkColor = "rgb(" +
+        Math.floor(parseInt(m[1]) / 2) + "," +
+        Math.floor(parseInt(m[2]) / 2) + "," +
+        Math.floor(parseInt(m[3]) / 2) + ")";
+    this.darkColors[color.canvasColor] = darkColor;
+  }
+  ships.drawTwoToneShip(
+      this.ctx, position[0], position[1], direction, color.canvasColor,
+      darkColor);
 };
 
 CanvasRenderer.prototype.drawShield = function(position, direction, color) {
@@ -409,13 +411,27 @@ CanvasRenderer.prototype.drawShot = function(position, count) {
   ctx.translate(position[0], position[1]);
   ctx.fillStyle = this.shotColors[count % this.shotColors.length];
   ctx.beginPath();
-  ctx.closePath();
   ctx.moveTo(0, 5);
   ctx.lineTo(5, 0);
   ctx.lineTo(0, -5);
   ctx.lineTo(-5, 0);
   ctx.closePath();
   ctx.fill();
+  ctx.restore();
+};
+
+CanvasRenderer.prototype.drawLeadMark = function(position, direction, color) {
+  var ctx = this.ctx;
+  ctx.save();
+  ctx.translate(position[0] + 15, position[1] - 15);
+  ctx.strokeStyle = color.canvasColor;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0,-10);
+  ctx.lineTo(10, 0);
+  ctx.lineTo(0, 0);
+  ctx.lineTo(30, -30);
+  ctx.stroke();
   ctx.restore();
 };
 
@@ -451,6 +467,26 @@ function WebGLRenderer(canvas, gl) {
   var width = this.canvas.width;
   var height = this.canvas.height;
 
+  function makeLeadMark() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(
+        2, [
+          0,   0,
+          0, -10,
+         10,   0,
+         30, -30,
+      ]),
+      indices: new tdl.primitives.AttribBuffer(2, [
+        0, 1, 1, 2, 2, 0, 0, 3
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures, gl.LINES);
+  }
+
   function makeShip() {
     var arrays = {
       position: new tdl.primitives.AttribBuffer(2, [
@@ -468,6 +504,50 @@ function WebGLRenderer(canvas, gl) {
     var program = tdl.programs.loadProgramFromScriptTags(
         "screenVertexShader", "screenFragmentShader");
     return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeTwoToneShip() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  15,
+         15, -15,
+          0, -10,
+          0,  15,
+          0, -10,
+        -15, -15
+      ]),
+      colorMult: new tdl.primitives.AttribBuffer(1, [
+         1, 1, 1, 0.5, 0.5, 0.5
+
+      ]),
+      indices: new tdl.primitives.AttribBuffer(3, [
+        0, 1, 2, 3, 4, 5
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "twoToneVertexShader", "twoToneFragmentShader");
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeOutlineShip() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  15,
+         15, -15,
+          0, -10,
+        -15, -15
+      ]),
+      indices: new tdl.primitives.AttribBuffer(2, [
+        0, 1, 1, 2, 2, 3, 3, 0
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures, gl.LINES);
   }
 
   function makeShot() {
@@ -645,8 +725,11 @@ function WebGLRenderer(canvas, gl) {
   }
 
   this.ship = makeShip();
+  this.outlineShip = makeOutlineShip();
+  this.twoToneShip = makeTwoToneShip();
   this.shot = makeShot();
   this.shield = makeShield();
+  this.leadMark = makeLeadMark();
 
   this.shotColors = [
     new Float32Array([0.5, 0.0, 0.0, 1]),
@@ -698,6 +781,7 @@ function WebGLRenderer(canvas, gl) {
       this.baseFBO.texture, this.persistentFBO1.texture);
 
   this.lastPlane = makeLastPlane(this.persistentFBO2.texture);
+  this.leadMarkInfo = {on:false,x:0,y:0,direction:0,color:[1,1,1,1]};
 }
 
 WebGLRenderer.prototype.resize = function() {
@@ -722,13 +806,16 @@ WebGLRenderer.prototype.resize = function() {
 
 WebGLRenderer.prototype.begin = function(elapsedTime) {
   ++this.renderCount;
+  this.leadMarkInfo.on = false;
   this.ships = [];
+  this.outlineShips = [];
+  this.twoToneShips = [];
   this.shields = [];
   this.shots = [];
   this.screenDimensions[0] = 2 / this.canvas.width;
   this.screenDimensions[1] = 2 / this.canvas.height;
   this.baseFBO.bind();
-  gl.colorMask(true, true, true, false);
+  gl.colorMask(true, true, true, true);
   gl.depthMask(true);
   gl.clearColor(0,0,0,0);
   gl.clearDepth(1);
@@ -748,7 +835,7 @@ WebGLRenderer.prototype.end = function(elapsedTime) {
 
   // blend base with persist1 into persist2
   this.persistentFBO2.bind();
-  this.persistPlane.drawPrep({persistence: 0.9});
+  this.persistPlane.drawPrep({persistence: 0.1});
   this.persistPlane.draw({oldRender: this.persistentFBO1.texture});
   this.persistentFBO2.unbind();
 
@@ -761,6 +848,10 @@ WebGLRenderer.prototype.end = function(elapsedTime) {
   this.lastPlane.drawPrep();
   this.lastPlane.draw({texture: this.persistentFBO2.texture});
   this.starParticleSystem.draw(this.projection, this.world, this.viewInverse);
+  var lm = this.leadMarkInfo;
+  if (lm.on) {
+    this.drawLeadMark_([lm.x, lm.y], lm.direction, lm.color);
+  }
   gl.disable(gl.DEPTH_TEST);
   gl.disable(gl.BLEND);
 
@@ -779,8 +870,29 @@ WebGLRenderer.prototype.drawShip = function(position, direction, color) {
   });
 };
 
-WebGLRenderer.prototype.renderShips = function(info) {
-  this.ship.drawPrep(this.constUniforms);
+WebGLRenderer.prototype.drawOutlineShip = function(
+    position, direction, color) {
+  this.outlineShips.push({
+    x: position[0],
+    y: position[1],
+    direction: direction,
+    color: color.glColor
+  });
+};
+
+WebGLRenderer.prototype.drawTwoToneShip = function(
+    position, direction, color) {
+  this.twoToneShips.push({
+    x: position[0],
+    y: position[1],
+    direction: direction,
+    color: color.glColor
+  });
+};
+
+WebGLRenderer.prototype.drawShips_ = function() {
+  var model = this.ship;
+  model.drawPrep(this.constUniforms);
   for (var ii = 0; ii < this.ships.length; ++ii) {
     var info = this.ships[ii];
     var c = Math.cos(info.direction);
@@ -795,8 +907,89 @@ WebGLRenderer.prototype.renderShips = function(info) {
     m[7] = info.y;
 
     this.uniforms.color = info.color;
-    this.ship.draw(this.uniforms);
+    model.draw(this.uniforms);
   }
+};
+
+WebGLRenderer.prototype.drawOutlineShips_ = function() {
+  var model = this.ship;
+  var black = new Float32Array([0,0,0,1]);
+  this.uniforms.color = black;
+  model.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.outlineShips.length; ++ii) {
+    var info = this.outlineShips[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    model.draw(this.uniforms);
+  }
+  var model = this.outlineShip;
+  model.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.outlineShips.length; ++ii) {
+    var info = this.outlineShips[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    this.uniforms.color = info.color;
+    model.draw(this.uniforms);
+  }
+};
+
+WebGLRenderer.prototype.drawTwoToneShips_ = function() {
+  var model = this.twoToneShip;
+  model.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.twoToneShips.length; ++ii) {
+    var info = this.twoToneShips[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    this.uniforms.color = info.color;
+    model.draw(this.uniforms);
+  }
+};
+
+WebGLRenderer.prototype.drawLeadMark_ = function(position, direction, color) {
+  this.leadMark.drawPrep(this.constUniforms);
+  var m = this.matrix;
+  m[0] = 1;
+  m[1] = 0;
+  m[3] = 0;
+  m[4] = 1;
+  m[6] = position[0] + 15;
+  m[7] = position[1] - 15;
+
+  this.uniforms.color = color;
+  this.leadMark.draw(this.uniforms);
+};
+
+WebGLRenderer.prototype.renderShips = function(info) {
+  this.drawShips_();
+  this.drawOutlineShips_();
+  this.drawTwoToneShips_();
 };
 
 WebGLRenderer.prototype.drawShield = function(position, direction, color) {
@@ -808,9 +1001,18 @@ WebGLRenderer.prototype.drawShield = function(position, direction, color) {
   });
 };
 
+WebGLRenderer.prototype.drawLeadMark = function(position, direction, color) {
+  var lm = this.leadMarkInfo;
+  lm.on = true;
+  lm.x = position[0];
+  lm.y = position[1];
+  lm.direction = direction;
+  lm.color = color.glColor;
+};
+
 WebGLRenderer.prototype.renderShields = function() {
   this.shield.drawPrep(this.constUniforms);
-	count = this.renderCount;
+  count = this.renderCount;
   for (var ii = 0; ii < this.shields.length; ++ii) {
     var info = this.shields[ii];
     var c = Math.cos(info.direction);
@@ -889,12 +1091,12 @@ function Player(x, y, direction, clientId, opt_name) {
   this.isMetaQueuePlayer = isMetaQueuePlayer;
   this.position = [x, y];
   this.hp = 3;
-  this.color = makeColor(g_playerCount);
+  this.color = ships.makeColor(g_playerCount + g_startCount);
   this.send({
     cmd: 'setColor',
-    color: this.color.canvasColor
+    color: this.color.canvasColor,
+    style: this.color.style
   });
-
   if (opt_name) {
     this.playerName = opt_name;
   } else {
@@ -904,11 +1106,11 @@ function Player(x, y, direction, clientId, opt_name) {
   this.targetDir = -1;
   this.direction = direction;
   this.fire = false;
-  this.vel = 200;
-  this.turnVel = Math.PI * 0.5;
+  this.vel = g.playerVelocity;
+  this.turnVel = g.playerTurnVelocity;
   this.shots = [];
-  this.maxShots = 2;
-  this.shotDuration = 3;
+  this.maxShots = g.maxShots;
+  this.shotDuration = g.shotDuration;
   this.shootTimer = 0;
   this.score = 0;
   this.timer = 0;
@@ -924,7 +1126,7 @@ function Player(x, y, direction, clientId, opt_name) {
   if (isMetaQueuePlayer) {
     this.setState('fly');
   } else {
-    if (window.io) {
+    if (window.io || g_activePlayers.length >= 2) {
       this.addToQueue();
     } else {
       this.setState('fly');
@@ -1066,7 +1268,7 @@ Player.prototype.state_countdown = function(elapsedTime) {
 Player.prototype.state_launch = function(elapsedTime) {
   this.updateDirection(elapsedTime);
   if (this.timesUp(elapsedTime)) {
-    this.invincibilityTimer = 3;
+    this.invincibilityTimer = g.invincibilityDuration;
     this.setState('fly');
   }
 };
@@ -1107,13 +1309,39 @@ Player.prototype.state_fly = function(elapsedTime) {
   if (this.invincibilityTimer > 0) {
     this.invincibilityTimer -= elapsedTime;
   }
+  this.checkCollisions();
 };
 
-Player.prototype.die = function(killer, shot) {
+Player.prototype.checkCollisions = function() {
+  // collide with other players?
+  // TODO(gman): try to optimize this. Player 1 should check
+  // 2, 3, 4.  2 against 3, 4,  3 against 4.
+  var hit = null;
+  for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+    var player = g_activePlayers[ii];
+    // If we are not ourself and we are not the ghost
+    if (player.id != this.id) {
+      if (player.collide(this.position[0], this.position[1], 5)) {
+        player.die(this, this, true);
+        hit = player;
+      }
+    }
+  }
+  // If we collided with someone
+  if (hit && this.invincibilityTimer <= 0) {
+    this.die(player, player, true);
+  }
+};
+
+/**
+ * Puts the player in the death state.
+ * Returns true if the killer should get a point.
+ */
+Player.prototype.die = function(killer, collider, crash) {
   if (this.invincibilityTimer > 0) {
     audio.play_sound('hitshield');
-    g_renderer.startShieldHit(shot.position);
-    return;
+    g_renderer.startShieldHit(collider.position);
+    return false;
   }
   audio.play_sound('explosion');
   this.timer = 2;
@@ -1121,22 +1349,25 @@ Player.prototype.die = function(killer, shot) {
   this.removeFromActive();
   this.send({
     cmd: 'die',
-    killer: killer.playerName
+    killer: killer.playerName,
+    crash: crash
   });
-  killer.send({
-    cmd: 'kill',
-    killed: this.playerName
-  });
+  if (!crash) {
+    killer.send({
+      cmd: 'kill',
+      killed: this.playerName
+    });
+  }
   this.showPlaceInQueue = true;
   g_renderer.startExplosion(
       this.position,
       this.direction,
       this.color);
-  killer.score++;
   if (killer == g_metaQueuePlayer) {
     g_metaQueuePlayer.timer = 3;
     g_metaQueuePlayer.setState('die');
   }
+  return true;
 };
 
 Player.prototype.state_die = function(elapsedTime) {
@@ -1159,9 +1390,12 @@ Player.prototype.collide = function(x, y, radius) {
 };
 
 Player.prototype.draw = function(renderer) {
+  var shipRenderFunc = renderer[ships.styles[this.color.style]];
+
   switch (this.state) {
     case 'fly':
-      renderer.drawShip(this.position, this.direction, this.color);
+      shipRenderFunc.call(
+          renderer, this.position, this.direction, this.color);
       if (this.invincibilityTimer > 0) {
         renderer.drawShield(this.position, this.direction, this.color);
       }
@@ -1170,7 +1404,8 @@ Player.prototype.draw = function(renderer) {
       var sy = g_canvas.height / 2 + 20;
       var sx = g_canvas.width + 20;
       var t = this.timer / this.launchDuration;
-      renderer.drawShip(
+      shipRenderFunc.call(
+          renderer,
           [tdl.math.lerpScalar(this.position[0], sx, t),
            tdl.math.lerpScalar(this.position[1], sy, t)],
           tdl.math.lerpCircular(this.direction, Math.PI, t, Math.PI * 2),
@@ -1195,6 +1430,20 @@ MetaQueuePlayer.prototype.send = function() {
   // do nothing.
 };
 
+MetaQueuePlayer.prototype.checkCollisions = function() {
+  if (this.fade < 0.3) {
+    return;
+  }
+  return Player.prototype.checkCollisions.call(this);
+};
+
+MetaQueuePlayer.prototype.collide = function(x, y, radius) {
+  if (this.fade < 0.3) {
+    return false;
+  }
+  return Player.prototype.collide.call(this, x, y, radius);
+};
+
 MetaQueuePlayer.prototype.accumClear = function() {
   if (!this.accum)
     this.accum = new Object();
@@ -1206,11 +1455,15 @@ MetaQueuePlayer.prototype.accumClear = function() {
 };
 
 MetaQueuePlayer.prototype.draw = function(renderer) {
+  // comment in for debug rendering
+  //renderer.drawShip(
+  //    this.position, this.direction,
+  //    {glColor: [1,0,0,1], canvasColor:"rgb(255,0,0)"});
   var a = Math.max(0, Math.min(1, this.fade));
   if (a == 0)
     return;
-  var black = {glColor: [0,0,0,1], canvasColor: "rgba(0,0,0)"};
-  var white = {glColor: [1,1,1,1], canvasColor: "rgba(255,255,255)"};
+  var black = {glColor: [0,0,0,1], canvasColor: "rgb(0,0,0)"};
+  var white = {glColor: [1,1,1,1], canvasColor: "rgb(255,255,255)"};
   switch (0) {
   case 0:
     var randShakePixels = 4;
@@ -1256,6 +1509,9 @@ MetaQueuePlayer.prototype.state_fly = function(elapsedTime) {
 MetaQueuePlayer.prototype.state_die = function(elapsedTime) {
   this.fade -= elapsedTime * this.fadeOutRate;
   if (this.timesUp(elapsedTime)) {
+    this.position[0] = Math.random() * g_canvas.width;
+    this.position[1] = Math.random() * g_canvas.height;
+    this.direction = Math.random() * Math.PI * 2;
     this.setState('fly');
   }
 };
@@ -1267,7 +1523,7 @@ MetaQueuePlayer.prototype.state_die = function(elapsedTime) {
 function Shot(x, y, direction, owner) {
   this.owner = owner;
   this.position = [x, y];
-  this.vel = 300;
+  this.vel = g.shotVelocity;
   this.duration = owner.shotDuration;
   this.direction = direction;
   this.drawCount = 0;
@@ -1299,7 +1555,9 @@ Shot.prototype.process = function(elapsedTime) {
       if (player.id != this.owner.id) {
         if (player.collide(this.position[0], this.position[1], 3)) {
           hit = true;
-          player.die(this.owner, this);
+          if (player.die(this.owner, this, false)) {
+            ++this.owner.score;
+          }
         }
       }
     }
@@ -1336,6 +1594,134 @@ function add2D(pos, dx, dy) {
 }
 
 /**
+ * Manages a visible list of players for like the highscore or queue display.
+ *
+ */
+function PListManager(element) {
+  this.element_ = element;
+  this.elements_ = [];
+  this.shipImages_ = [];
+  this.shipImageCursors_ = [];
+  this.shipURLs_ = [];
+
+  var canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  var ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#008";
+  ctx.globalCompositeOperation = "copy";
+  ctx.fillRect(0, 0, 32, 32);
+  ships.drawShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
+  this.shipURLs_.push(canvas.toDataURL());
+  ctx.fillRect(0, 0, 32, 32);
+  ships.drawOutlineShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
+  this.shipURLs_.push(canvas.toDataURL());
+  ctx.fillRect(0, 0, 32, 32);
+  ships.drawTwoToneShip(
+      ctx, 16, 16, Math.PI, "rgba(0,0,0,0)", "rgba(0,0,0,0.5)");
+  this.shipURLs_.push(canvas.toDataURL());
+}
+
+/**
+ * Call before updating the list
+ */
+PListManager.prototype.begin = function() {
+  this.cursor_ = 0;
+  this.shipImageCursors_ = [0, 0, 0];
+};
+
+/**
+ * Call after updating the list
+ */
+PListManager.prototype.end = function() {
+  for (var ii = this.cursor_; ii < this.elements_.length; ++ii) {
+    var element = this.elements_[ii];
+    element.line.style.display = "none";
+  }
+};
+
+PListManager.prototype.getElement_ = function(index) {
+  var element = this.elements_[index];
+  if (!element) {
+    line = document.createElement("div");
+    line.style.position = "relative";
+    line.style.height = "40px";
+    line.style.display = "block";
+    //line.style.verticalAlign = "middle";
+    var span = document.createElement("div");
+    span.style.width = "32px";
+    span.style.height = "32px";
+    span.style.position = "absolute";
+    span.style.top = "0px";
+    span.style.left = "0px";
+    var img = document.createElement("span");
+    img.style.zIndex = 5;
+    img.style.position = "absolute";
+    img.style.top = "0px";
+    img.style.left = "0px";
+    var info = document.createElement("div");
+    info.style.position = "absolute";
+    info.style.top = "4px";
+    info.style.left = "40px";
+    info.style.color = "white";
+    info.style.fontFamily = "sans-serif";
+    info.style.fontSize = "20px";
+    var name = document.createElement("span");
+    var msg = document.createElement("span");
+    info.appendChild(msg);
+    info.appendChild(name);
+    line.appendChild(span);
+    line.appendChild(img);
+    line.appendChild(info);
+    this.element_.appendChild(line);
+    var element = {
+      line: line,
+      span: span,
+      img: img,
+      msg: msg,
+      name: name
+    };
+    this.elements_.push(element);
+  }
+  return element;
+};
+
+PListManager.prototype.getShipImg_ = function(style) {
+  var images = this.shipImages_[style];
+  if (!images) {
+    images = [];
+    this.shipImages_[style] = images;
+  }
+  var img = images[this.shipImageCursors_[style]++];
+  if (!img) {
+    img = document.createElement("img");
+    img.src = this.shipURLs_[style];
+    images.push(img);
+  }
+  return img;
+};
+
+PListManager.prototype.setElement = function(player, launching, msg) {
+  var img = this.getShipImg_(player.color.style);
+  var element = this.getElement_(this.cursor_++);
+  var child = element.img.firstChild;
+  if (child) {
+    element.img.removeChild(child);
+  }
+  element.img.appendChild(img);
+  element.line.style.display = "block";
+  element.msg.innerHTML = msg;
+  element.name.innerHTML = player.playerName;
+  element.span.style.backgroundColor = player.color.canvasColor;
+  if (launching) {
+    element.name.color = "#f00";
+  } else {
+    element.name.color = "#ff0";
+  }
+};
+
+
+/**
  * Manages the Queue of players waiting.
  */
 function QueueManager() {
@@ -1343,19 +1729,7 @@ function QueueManager() {
   this.queue_ = [];
   this.timer_ = 0;
 
-  this.element_ = $("queue");
-  this.elements_ = [];
-
-  var canvas = document.createElement("canvas");
-  canvas.width = 32;
-  canvas.height = 32;
-  var ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#008";
-  ctx.fillRect(0, 0, 32, 32);
-  ctx.globalCompositeOperation = "copy";
-  drawShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
-  this.shipURL = canvas.toDataURL();
-
+  this.plist = new PListManager($("queue"));
 
 //  this.rowHeight_ = 40;
 //  this.canvas_ = $("queue-canvas");
@@ -1423,69 +1797,15 @@ function QueueManager() {
 //};
 
 QueueManager.prototype.draw = function() {
+  this.plist.begin();
   this.setElements_(0, this.launching_, true);
   this.setElements_(this.launching_.length, this.queue_, false);
-  for (var ii = this.launching_.length + this.queue_.length;
-       ii < this.elements_.length; ++ii) {
-    var element = this.elements_[ii];
-    element.line.style.display = "none";
-  }
-};
-
-QueueManager.prototype.getElement_ = function(index) {
-  var element = this.elements_[index];
-  if (!element) {
-    line = document.createElement("div");
-    line.style.position = "relative";
-    line.style.height = "40px";
-    line.style.display = "block";
-    //line.style.verticalAlign = "middle";
-    var span = document.createElement("div");
-    span.style.width = "32px";
-    span.style.height = "32px";
-    span.style.position = "absolute";
-    span.style.top = "0px";
-    span.style.left = "0px";
-    var img = document.createElement("img");
-    img.src = this.shipURL;
-    img.style.zIndex = 5;
-    img.style.position = "absolute";
-    img.style.top = "0px";
-    img.style.left = "0px";
-    var name = document.createElement("div");
-    name.style.position = "absolute";
-    name.style.top = "4px";
-    name.style.left = "40px";
-    name.style.color = "white";
-    name.style.fontFamily = "sans-serif";
-    name.style.fontSize = "20px";
-    line.appendChild(span);
-    line.appendChild(img);
-    line.appendChild(name);
-    this.element_.appendChild(line);
-    var element = {
-      line: line,
-      span: span,
-      img: img,
-      name: name
-    };
-    this.elements_.push(element);
-  }
-  return element;
+  this.plist.end();
 };
 
 QueueManager.prototype.setElements_ = function(index, players, launching) {
   for (var ii = 0; ii < players.length; ++ii) {
-    var player = players[ii];
-    var element = this.getElement_(index + ii);
-    element.line.style.display = "block";
-    element.name.innerHTML = player.playerName;
-    element.span.style.backgroundColor = player.color.canvasColor;
-    if (launching) {
-      element.name.color = "#f00";
-    } else {
-      element.name.color = "#ff0";
-    }
+    this.plist.setElement(players[ii], launching, "");
   }
 };
 
@@ -1535,7 +1855,7 @@ QueueManager.prototype.process = function(elapsedTime) {
     this.timer_ -= elapsedTime;
   } else {
     if (this.queue_.length > 0 &&
-        g_activePlayers.length + this.launching_.length < g_maxActivePlayers) {
+        g_activePlayers.length + this.launching_.length < g.maxActivePlayers) {
       var player = this.queue_.shift()
       player.countdown();
       this.launching_.push(player);
@@ -1550,22 +1870,20 @@ QueueManager.prototype.process = function(elapsedTime) {
  */
 
 function ScoreManager() {
-  this.element_ = $("highscore");
+  this.plist_ = new PListManager($("highscore"));
   this.maxScores_ = 10;
   this.orderedPlayers_ = [];
-  this.elements_ = [];
-
-  for (var ii = 0; ii < this.maxScores_; ++ii) {
-    var element = document.createElement("div");
-    this.element_.appendChild(element);
-    this.elements_.push(element);
-  }
+  this.zeros_ = "";
 }
 
 ScoreManager.prototype.calculateScores = function() {
   this.orderedPlayers_ = [];
-  for (var id in g_players)
-    this.orderedPlayers_.push(g_players[id]);
+  var maxScore = 0;
+  for (var id in g_players) {
+    var player = g_players[id];
+    this.orderedPlayers_.push(player);
+    maxScore = Math.max(maxScore, player.score);
+  }
 
   this.orderedPlayers_.sort(function(a, b) {
     if (a.score > b.score)
@@ -1580,22 +1898,45 @@ ScoreManager.prototype.calculateScores = function() {
 
   if (this.orderedPlayers_.length > this.maxScores_)
     this.orderedPlayers_.length = this.maxScores_;
+
+  var numDigits = maxScore.toString().length;
+  if (numDigits < this.zeros_.length) {
+    this.zeros_ = this.zeros_.substr(0, numDigits);
+  } else {
+    while (this.zeros_.length < numDigits) {
+      this.zeros_ += "0";
+    }
+  }
 };
 
 ScoreManager.prototype.drawScores = function() {
+  this.plist_.begin();
   for (var ii = 0; ii < this.orderedPlayers_.length; ++ii) {
     var player = this.orderedPlayers_[ii];
-    this.elements_[ii].innerHTML =
-      (player.score < 10 ? '0' : '') + player.score + ": " + player.playerName;
+    var score = player.score.toString();
+    if (score.length < this.zeros_.length) {
+      score = score + this.zeros_.substr(score.length);
+    }
+    this.plist_.setElement(player, false, score + ": ");
   }
-  for (var ii = this.orderedPlayers_.length; ii < this.maxScores_; ++ii) {
-    this.elements_[ii].innerHTML = "";
-  }
+  this.plist_.end();
 };
 
 ScoreManager.prototype.update = function() {
   this.calculateScores();
   this.drawScores();
+};
+
+ScoreManager.prototype.draw = function(renderer) {
+  if (this.orderedPlayers_.length > 1 &&
+      this.orderedPlayers_[0].score > this.orderedPlayers_[1].score) {
+    var lead = this.orderedPlayers_[0];
+    if (lead.state == 'fly') {
+      renderer.drawLeadMark(
+          lead.position, lead.direction,
+          {glColor: new Float32Array([1,0,0,1]), canvasColor:"rgb(255,0,0)"});
+    }
+  }
 };
 
 /**
@@ -1636,10 +1977,14 @@ EntitySystem.prototype.processEntities = function(elapsedTime) {
 };
 
 function main() {
+  tdl.misc.applyUrlSettings(g);
+
   g_canvas = $("canvas");
-  if (window.io) {
-    $("url").innerHTML = "To Play Go To " + "goto.google.com/powpow or " +
-         window.location.href.replace(/\/[^/]*$/, '');
+  if (g.msg) {
+    $("url").innerHTML = msg;
+  } else if (window.io) {
+    $("url").innerHTML = "To Play Go To " +
+        window.location.href.replace(/\/[^/]*$/, '');
   } else {
     $("url").innerHTML = "!!DEBUG MODE!! -- Must run from server to play";
   }
@@ -1650,6 +1995,7 @@ function main() {
   } else {
     g_renderer = new CanvasRenderer(g_canvas);
   }
+//    g_renderer = new CanvasRenderer(g_canvas);
 
   connect();
   sendCmd("server");
@@ -1716,7 +2062,7 @@ function main() {
     }
 
     //g_queueMgr.draw();
-
+    g_scoreMgr.draw(g_renderer);
     g_renderer.end(elapsedTime);
 
     if (g_updateStatus) {
@@ -1731,8 +2077,11 @@ function main() {
 }
 
 function startLocalPlayers() {
+  g.maxActivePlayers = 2;
   var player1 = startPlayer(1);
   var player2 = startPlayer(2);
+  var player3 = startPlayer(3); // in queue
+  var player4 = startPlayer(4); // in queue
   var g_left = false;
   var g_right = false;
   var g_fire = false;
@@ -1845,6 +2194,29 @@ void main() {
   gl_FragColor = color;
 }
 </script>
+<script id="twoToneVertexShader" type="whatever">
+uniform mat3 matrix;
+uniform vec2 screenDimensions;
+attribute vec2 position;
+attribute float colorMult;
+varying float v_colorMult;
+
+void main() {
+  vec3 pos = vec3(-1, -1, 0) + matrix * vec3(position, 1) * vec3(screenDimensions, 0);
+  gl_Position = vec4(pos.x, -pos.y, 0, 1);
+  v_colorMult = colorMult;
+}
+</script>
+<script id="twoToneFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform vec4 color;
+varying float v_colorMult;
+void main() {
+  gl_FragColor = color * vec4(v_colorMult, v_colorMult, v_colorMult, 1);
+}
+</script>
 <script id="persistVertexShader" type="whatever">
 attribute vec2 position;
 attribute vec2 texCoord;
@@ -1865,12 +2237,14 @@ varying vec2 v_texCoord;
 void main() {
   vec4 newColor = texture2D(newRender, v_texCoord);
   vec4 oldColor = texture2D(oldRender, v_texCoord);
-
+  float alpha = newColor.a;
+  float mixAmount = length(newColor.xyz) * alpha;
+  mixAmount = mix(persistence, 1.0, alpha);
   gl_FragColor =
     vec4(
-      mix(oldColor.g * persistence, newColor.r, length(newColor.xyz)),
-      mix(oldColor.b * persistence, newColor.g, length(newColor.xyz)),
-      mix(oldColor.r * persistence, newColor.b, length(newColor.xyz)),
+      mix(oldColor.g, newColor.r, mixAmount),
+      mix(oldColor.b, newColor.g, mixAmount),
+      mix(oldColor.r, newColor.b, mixAmount),
       1);
 }
 </script>
