@@ -53,6 +53,23 @@ html, body {
   position: relative;
   height: 90%;
 }
+#shipArea {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  border: 1px solid cyan;
+  z-index: 500;
+}
+#ship {
+  width: 300px;
+  height: 300px;
+}
+#controls {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  border: 1px solid yellow;
+}
 #keyControls {
   position: absolute;
   top: 0px;
@@ -120,6 +137,7 @@ html, body {
 <link rel="stylesheet" media="all and (max-device-width: 900px) and (orientation:landscape)" href="phone-landscape.css">
 <link rel="stylesheet" media="all and (min-device-width: 1025px)" href="monitor.css">
 <script type="text/javascript" src="../socket.io/socket.io.js"></script>
+<script type="text/javascript" src="ships.js"></script>
 <script type="text/javascript" src="tdl/base.js"></script>
 <script>
 tdl.require('audio');
@@ -270,9 +288,21 @@ function processMessage(msg) {
   switch (msg.cmd) {
   case 'setColor':
     var e = $("surface");
-    g_playerColor = msg.color;
-    g_playerStyle = msg.style;
-    e.style.backgroundColor = msg.color;
+    //e.style.backgroundColor = msg.color;
+    var canvas = document.createElement("canvas");
+    canvas.width = 150;
+    canvas.height = 150;
+    var ctx = $("ship").getContext("2d");
+    var styleName = ships.styles[msg.style];
+    for (var yy = -2; yy <= 2; ++yy) {
+      for (var xx = -2; xx <=2; ++xx) {
+        ships.drawShip(ctx, xx + 20, yy + 20, Math.PI, "#000");
+      }
+    }
+    ships[styleName](ctx, 20, 20, Math.PI, msg.color);
+    var img = document.createElement("img");
+    img.src = canvas.toDataURL();
+    e.style.backgroundImage = img;
     break;
   case 'setName':
     g_name = msg.name;
@@ -648,6 +678,8 @@ function main() {
       samples: 1,
     }
   });
+
+  ships.setShipSize(140);
 
   // Get the name user set before.
   g_name = readCookie("name");

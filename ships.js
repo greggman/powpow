@@ -21,6 +21,7 @@ var ships = (function(){
   ];
   var g_darkColors = {
   };
+  var g_shipSize = 15;
 
   return {
     styles: g_styles,
@@ -67,16 +68,20 @@ var ships = (function(){
       };
     },
 
+    setShipSize: function(size) {
+      g_shipSize = size;
+    },
+
     drawShip: function(ctx, x, y, direction, color) {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(direction);
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.moveTo(0, 15);
-      ctx.lineTo(15, -15);
-      ctx.lineTo(0, -10);
-      ctx.lineTo(-15, -15);
+      ctx.moveTo(0, g_shipSize);
+      ctx.lineTo(g_shipSize, -g_shipSize);
+      ctx.lineTo(0, -g_shipSize * 2 / 3);
+      ctx.lineTo(-g_shipSize, -g_shipSize);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
@@ -89,10 +94,10 @@ var ships = (function(){
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(0, 15);
-      ctx.lineTo(15, -15);
-      ctx.lineTo(0, -10);
-      ctx.lineTo(-15, -15);
+      ctx.moveTo(0, g_shipSize);
+      ctx.lineTo(g_shipSize, -g_shipSize);
+      ctx.lineTo(0, -g_shipSize * 2 / 3);
+      ctx.lineTo(-g_shipSize, -g_shipSize);
       ctx.closePath();
       ctx.stroke();
       ctx.restore();
@@ -115,16 +120,16 @@ var ships = (function(){
       ctx.rotate(direction);
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.moveTo(0, 15);
-      ctx.lineTo(15, -15);
-      ctx.lineTo(0, -10);
+      ctx.moveTo(0, g_shipSize);
+      ctx.lineTo(g_shipSize, -g_shipSize);
+      ctx.lineTo(0, -g_shipSize * 2 / 3);
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = opt_darkColor;
       ctx.beginPath();
-      ctx.moveTo(0, 15);
-      ctx.lineTo(0, -10);
-      ctx.lineTo(-15, -15);
+      ctx.moveTo(0, g_shipSize);
+      ctx.lineTo(0, -g_shipSize * 2 / 3);
+      ctx.lineTo(-g_shipSize, -g_shipSize);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
