@@ -1,0 +1,2274 @@
+<!doctype html>
+<html>
+<head>
+<title>PowPow</title>
+<style>
+html, body {
+  width: 100%;
+  height: 100%;
+  border: 0px;
+  padding: 0px;
+  margin: 0px;
+  background-color: purple; //black;
+  font-family: sans-serif;
+  color: white;
+  font-size: 20px;
+}
+#url {
+  height: 5%;
+  background-color: #008;
+  text-align: center;
+}
+#outer {
+  width: 100%;
+  height: 100%;
+}
+#main {
+  float: left;
+  width: 85%;
+  height: 100%;
+}
+#canvas {
+  width: 100%;
+  height: 95%;
+  background-color: black;
+  gbackground-image: url(assets/background.jpg);
+  gbackground-size: 100%;
+}
+#status {
+  float: right;
+  width: 15%;
+  background-color: red;
+  height: 100%;
+}
+#highscore, #queue {
+  white-space: nowrap;
+  overflow: hidden;
+  height: 100%;
+  background-color: #008;
+}
+#highscores-outer {
+  width: 100%;
+  height: 50%;
+  background-color: blue;
+}
+#queue-outer {
+  width: 100%;
+  height: 50%;
+  background-color: blue;
+}
+#queue-canvas {
+  width: 100%;
+  height: 100%;
+}
+#disconnected {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  width: 100%;
+  height: 100%;
+  display: none;
+  background-color: red;
+  text-align: center;
+  z-index: 1000
+}
+</style>
+<!-- Note: Socket IO is served from the socket io based server -->
+<script type="text/javascript" src="socket.io/socket.io.js"></script>
+<script type="text/javascript" src="ships.js"></script>
+<script type="text/javascript" src="tdl/base.js"></script>
+<script>
+tdl.require('audio');
+tdl.require('tdl.buffers');
+tdl.require('tdl.fast');
+tdl.require('tdl.framebuffers');
+tdl.require('tdl.log');
+tdl.require('tdl.math');
+tdl.require('tdl.models');
+tdl.require('tdl.particles');
+tdl.require('tdl.primitives');
+tdl.require('tdl.programs');
+tdl.require('tdl.textures');
+tdl.require('tdl.webgl');
+
+window.onload = main;
+
+var g_maxActivePlayers = 6;
+var g_playerCount = 1;
+var g_totalPlayerCount = 0;
+var g_canvas;
+var gl;
+var g_clock;
+var g_socket;
+var g_players = {};  // all players
+var g_metaQueuePlayer;
+var g_activePlayers = [];  // players currently playing
+var g_shotsById = {};
+var g_numPlayers = 0;
+var g_debug = false;
+var g_logGLCalls = false;
+var g_renderer;
+var g_updateStatus = false;
+var g_startCount = Math.floor(Math.random() * 100);
+
+// g_debug = true;
+// g_logGLCalls = true;
+
+var g_entitySys;
+var g_queueMgr;
+var g_scoreMgr;
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function logTo(id, str) {
+  var c = $(id);
+  var d = document.createElement("div");
+  d.appendChild(document.createTextNode(str));
+  c.appendChild(d);
+}
+
+function log() {
+  var s = ""
+  for (var ii = 0; ii < arguments.length; ++ii) {
+    s += arguments[ii].toString();
+  }
+  logTo("console", s);
+}
+
+function ValidateNoneOfTheArgsAreUndefined(functionName, args) {
+  for (var ii = 0; ii < args.length; ++ii) {
+    if (args[ii] === undefined) {
+      tdl.error("undefined passed to gl." + functionName + "(" +
+                tdl.webgl.glFunctionArgsToString(functionName, args) + ")");
+    }
+  }
+}
+
+function Log(msg) {
+  if (g_logGLCalls) {
+    tdl.log(msg);
+  }
+}
+
+function LogGLCall(functionName, args) {
+  if (g_logGLCalls) {
+    ValidateNoneOfTheArgsAreUndefined(functionName, args)
+    tdl.log("gl." + functionName + "(" +
+                tdl.webgl.glFunctionArgsToString(functionName, args) + ")");
+  }
+}
+
+function connect(server, port) {
+  if (!window.io) {
+    g_socket = {
+      send: function() { }
+    };
+    return;
+  }
+  var server = window.location.href.match(/\/\/(.*?)\//)[1];
+  var port = 8080;
+  g_socket = new io.Socket(null, {
+      port: port,
+      transports: ['websocket']});
+  g_socket.connect();
+  g_socket.on('connect', connected);
+  g_socket.on('message', function(obj) {
+    processMessage(obj);
+  });
+  g_socket.on('disconnect', disconnected);
+}
+
+function connected() {
+  $('outer').style.display = "block";
+  $('disconnected').style.display = "none";
+}
+
+function disconnected() {
+  $('outer').style.display = "none";
+  $('disconnected').style.display = "block";
+  while (g_numPlayers > 0) {
+    for (var id in g_players) {
+      removePlayer(id);
+      break;
+    }
+  }
+  connect();
+}
+
+function sendCmd(cmd, id, data) {
+  g_socket.send({
+    cmd: cmd,
+    id: id,
+    data: data
+  });
+}
+
+function processMessage(msg) {
+  switch (msg.cmd) {
+  case 'start':
+    startPlayer(msg.id, msg.name);
+    break;
+  case 'update':
+    updatePlayer(msg.id, msg.data);
+    break;
+  case 'remove':
+    removePlayer(msg.id);
+    break;
+  }
+}
+
+function startPlayer(id, name) {
+  if (g_players[id])
+    return;
+
+  var x = Math.random() * g_canvas.width;
+  var y = Math.random() * g_canvas.height;
+  var direction = Math.random() * Math.PI * 2;
+
+  var player = new Player(x, y, direction, id, name);
+  g_players[id] = player;
+  if (g_numPlayers == 0) {
+    audio.play_sound('play');
+  }
+  ++g_numPlayers;
+
+  return player;
+}
+
+function startMetaQueuePlayer() {
+  if (g_metaQueuePlayer)
+    return g_metaQueuePlayer;
+  var x = g_canvas.width / 2;
+  var y = g_canvas.height / 2;
+  var direction = Math.random() * Math.PI * 2;
+
+  g_metaQueuePlayer = new MetaQueuePlayer(x, y, direction);
+  return g_metaQueuePlayer;
+}
+
+function getPlayer(id) {
+  var player = g_players[id];
+  return player;
+}
+
+function removePlayer(id) {
+  if (g_players[id]) {
+    g_players[id].removeFromGame();
+    delete g_players[id];
+    --g_numPlayers;
+    if (g_numPlayers == 0) {
+      audio.play_sound('gameover');
+    }
+  }
+}
+
+function updatePlayer(id, msg) {
+  var player = getPlayer(id);
+  if (!player)
+    return;
+  player.update(msg);
+}
+
+function CanvasRenderer(canvas) {
+  this.canvas = canvas;
+  this.ctx = canvas.getContext("2d");
+  this.explosions = [];
+  this.shieldhits = [];
+  this.renderCount = 0;
+  this.darkColors = {};
+
+  this.shotColors = [
+    "#800000",
+    "#ff0000",
+    "#ff8000",
+    "#ffff00",
+    "#ffffff",
+    "#ffff00",
+    "#ff0000",
+    "#ff8000"
+  ];
+
+  this.shieldColors = [
+  "#00F",
+  "#88F",
+  "#FFF",
+  "#88F"
+  ];
+}
+
+CanvasRenderer.prototype.resize = function() {
+  if (this.canvas.width != this.canvas.clientWidth ||
+      this.canvas.height != this.canvas.clientHeight) {
+    this.canvas.width = this.canvas.clientWidth;
+    this.canvas.height = this.canvas.clientHeight;
+    //tdl.log("new width:", this.canvas.width);
+    //tdl.log("new height:", this.canvas.height);
+  }
+};
+
+CanvasRenderer.prototype.begin = function(elapsedTime) {
+  ++this.renderCount;
+  this.shieldCount = this.renderCount % this.shieldColors.length;
+  this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+};
+
+CanvasRenderer.prototype.end = function(elapsedTime) {
+  var ctx = this.ctx;
+  if (this.explosions.length > 0) {
+    if (this.explosions[0].timer <= 0) {
+      this.explosions.shift();
+    }
+  }
+  for (var ii = 0; ii < this.explosions.length; ++ii) {
+    var explosion = this.explosions[ii];
+    explosion.timer -= elapsedTime;
+    var l = Math.max(0, explosion.timer / 1);
+    var radius = (1 - l) * 50 + 10;
+    ctx.save();
+    ctx.fillStyle = "rgba(255,255,0," + l + ")";
+    ctx.translate(explosion.x, explosion.y);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2, false);
+    ctx.fill();
+    ctx.restore();
+  }
+  if (this.shieldhits.length > 0) {
+    if (this.shieldhits[0].timer <= 0) {
+      this.shieldhits.shift();
+    }
+  }
+  for (var ii = 0; ii < this.shieldhits.length; ++ii) {
+    var shieldhit = this.shieldhits[ii];
+    shieldhit.timer -= elapsedTime;
+    var l = Math.max(0, shieldhit.timer / 1);
+    var radius = (1 - (shieldhit.timer / 1)) * 10 + 5;
+    ctx.save();
+  ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(128,128,255," + l + ")";
+    ctx.translate(shieldhit.x, shieldhit.y);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2, false);
+    ctx.stroke();
+    ctx.restore();
+  }
+};
+
+CanvasRenderer.prototype.drawShip = function(position, direction, color) {
+  ships.drawShip(
+      this.ctx, position[0], position[1], direction, color.canvasColor);
+};
+
+CanvasRenderer.prototype.drawOutlineShip = function(
+    position, direction, color) {
+  ships.drawOutlineShip(
+      this.ctx, position[0], position[1], direction, color.canvasColor);
+};
+
+CanvasRenderer.prototype.drawTwoToneShip = function(
+    position, direction, color) {
+  var darkColor = this.darkColors[color.canvasColor];
+  if (!darkColor) {
+    var m = color.canvasColor.match(/rgb\((\d+),(\d+),(\d+)\)/)
+    var darkColor = "rgb(" +
+        Math.floor(parseInt(m[1]) / 2) + "," +
+        Math.floor(parseInt(m[2]) / 2) + "," +
+        Math.floor(parseInt(m[3]) / 2) + ")";
+    this.darkColors[color.canvasColor] = darkColor;
+  }
+  ships.drawTwoToneShip(
+      this.ctx, position[0], position[1], direction, color.canvasColor,
+      darkColor);
+};
+
+CanvasRenderer.prototype.drawShield = function(position, direction, color) {
+  var ctx = this.ctx;
+  ctx.save();
+  ctx.strokeStyle = this.shieldColors[this.shieldCount++ % this.shieldColors.length];
+  ctx.translate(position[0], position[1]);
+  ctx.beginPath();
+  ctx.lineWidth = 2;
+  ctx.arc(0, 0, 20, 0, Math.PI * 2, false);
+  ctx.stroke();
+  ctx.restore();
+};
+
+CanvasRenderer.prototype.drawShot = function(position, count) {
+  var ctx = this.ctx;
+  ctx.save();
+  ctx.translate(position[0], position[1]);
+  ctx.fillStyle = this.shotColors[count % this.shotColors.length];
+  ctx.beginPath();
+  ctx.moveTo(0, 5);
+  ctx.lineTo(5, 0);
+  ctx.lineTo(0, -5);
+  ctx.lineTo(-5, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+};
+
+CanvasRenderer.prototype.drawLeadMark = function(position, direction, color) {
+  var ctx = this.ctx;
+  ctx.save();
+  ctx.translate(position[0] + 15, position[1] - 15);
+  ctx.strokeStyle = color.canvasColor;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0,-10);
+  ctx.lineTo(10, 0);
+  ctx.lineTo(0, 0);
+  ctx.lineTo(30, -30);
+  ctx.stroke();
+  ctx.restore();
+};
+
+CanvasRenderer.prototype.startExplosion = function(position, direction, color) {
+  this.explosions.push({
+    timer: 1,
+    x: position[0],
+    y: position[1]
+  });
+};
+
+CanvasRenderer.prototype.startShieldHit = function(position) {
+  this.shieldhits.push({
+    timer: 0.5,
+    x: position[0],
+    y: position[1]
+  });
+};
+
+function WebGLRenderer(canvas, gl) {
+  var math = tdl.math;
+  var fast = tdl.fast;
+  this.canvas = canvas;
+
+  if (g_debug) {
+    gl = tdl.webgl.makeDebugContext(gl, undefined, LogGLCall);
+  }
+
+  this.gl = gl;
+  this.screenDimensions = [2 / this.canvas.width, 2 / this.canvas.height];
+  this.renderCount = 0;
+  this.resize();
+  var width = this.canvas.width;
+  var height = this.canvas.height;
+
+  function makeLeadMark() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(
+        2, [
+          0,   0,
+          0, -10,
+         10,   0,
+         30, -30,
+      ]),
+      indices: new tdl.primitives.AttribBuffer(2, [
+        0, 1, 1, 2, 2, 0, 0, 3
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures, gl.LINES);
+  }
+
+  function makeShip() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  15,
+         15, -15,
+          0, -10,
+        -15, -15
+      ]),
+      indices: new tdl.primitives.AttribBuffer(3, [
+        0, 1, 2, 0, 2, 3
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeTwoToneShip() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  15,
+         15, -15,
+          0, -10,
+          0,  15,
+          0, -10,
+        -15, -15
+      ]),
+      colorMult: new tdl.primitives.AttribBuffer(1, [
+         1, 1, 1, 0.5, 0.5, 0.5
+
+      ]),
+      indices: new tdl.primitives.AttribBuffer(3, [
+        0, 1, 2, 3, 4, 5
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "twoToneVertexShader", "twoToneFragmentShader");
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeOutlineShip() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  15,
+         15, -15,
+          0, -10,
+        -15, -15
+      ]),
+      indices: new tdl.primitives.AttribBuffer(2, [
+        0, 1, 1, 2, 2, 3, 3, 0
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures, gl.LINES);
+  }
+
+  function makeShot() {
+    var arrays = {
+      position: new tdl.primitives.AttribBuffer(2, [
+          0,  5,
+          5,  0,
+          0, -5,
+         -5, -0
+      ]),
+      indices: new tdl.primitives.AttribBuffer(3, [
+        0, 1, 2, 0, 2, 3
+      ], 'Uint16Array')
+    }
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeShield() {
+    var arrays = tdl.primitives.createDisc(20, 24, 1, 18);
+    tdl.primitives.reorient(arrays,
+        [1, 0, 0, 0,
+         0, 0,-1, 0,
+         0, 1, 0, 0,
+         0, 0, 0, 1]);
+    delete arrays.normals;
+    delete arrays.texCoords;
+    var textures = {
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        "screenVertexShader", "screenFragmentShader");
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makePersist(newTexture, oldTexture) {
+    var textures = {
+        newRender: newTexture,
+        oldRender: oldTexture
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        'persistVertexShader',
+        'persistFragmentShader');
+    var arrays = tdl.primitives.createPlane(2, 2, 1, 1);
+    tdl.primitives.reorient(arrays,
+        [1, 0, 0, 0,
+         0, 0,-1, 0,
+         0, 1, 0, 0,
+         0, 0, 0, 1]);
+    delete arrays.normal;
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function makeLastPlane(texture) {
+    var textures = {
+        texture: texture
+    };
+    var program = tdl.programs.loadProgramFromScriptTags(
+        'mainVertexShader',
+        'mainFragmentShader');
+    var arrays = tdl.primitives.createPlane(2, 2, 1, 1);
+    tdl.primitives.reorient(arrays,
+        [1, 0, 0, 0,
+         0, 0,-1, 0,
+         0, 1, 0, 0,
+         0, 0, 0, 1]);
+    delete arrays.normal;
+    return new tdl.models.Model(program, arrays, textures);
+  }
+
+  function setupFlame(particleSystem) {
+    var emitter = particleSystem.createParticleEmitter();
+    emitter.setTranslation(0, 0, 0);
+    emitter.setState(tdl.particles.ParticleStateIds.ADD);
+    emitter.setColorRamp(
+        [1, 1, 0, 1,
+         1, 0, 0, 1,
+         0, 0, 0, 1,
+         0, 0, 0, 0.5,
+         0, 0, 0, 0]);
+    emitter.setParameters({
+        numParticles: 20,
+        lifeTime: 2,
+        timeRange: 2,
+        startSize: 0.5,
+        endSize: 0.9,
+        velocity:[0, 0.60, 0], velocityRange: [0.15, 0.15, 0.15],
+        worldAcceleration: [0, -0.20, 0],
+        spinSpeedRange: 4});
+  }
+
+  function setupStars(particleSystem) {
+    var emitter = particleSystem.createParticleEmitter();
+    emitter.setTranslation(0, 0, 0);
+    emitter.setState(tdl.particles.ParticleStateIds.ADD);
+    emitter.setColorRamp(
+        [0, 0, 1, 0.5,
+         0, 0, 1, 1,
+         0.5, 0.5, 1, 1,
+         1, 1, 1, 1,
+         0.5, 0.5, 1, 1,
+         0, 0, 1, 1,
+         0, 0, 1, 0.5,
+         0, 0, 0, 0]);
+    emitter.setParameters({
+        numParticles: 1000,
+        lifeTime: 5,
+        lifeTimeRange: 5,
+        timeRange: 5,
+        startSize: 10,
+        startSizeRange: 10,
+        endSize: 10,
+        position: [width / 2, height / 2, 0],
+        positionRange: [width / 2 + 40, height / 2 + 40, 0],
+        velocity: [-20, 10, 0],
+        //colorMultRange: [1, 1, 1, 0],
+      });
+  }
+
+  function setupExplosions(particleSystem, maxExplosions) {
+    var emitter = particleSystem.createParticleEmitter();
+    emitter.setState(tdl.particles.ParticleStateIds.ADD);
+    emitter.setColorRamp(
+        [1, 1, 1, 1,
+         1, 1, 0, 1,
+         1, 0, 0, 1,
+         1, 1, 1, 0.5,
+         1, 1, 1, 0]);
+    emitter.setParameters({
+        numParticles: 60,
+        lifeTime: 1.5,
+        startTime: 0,
+        startSize: 20.0,
+        endSize: 40.0,
+        spinSpeedRange: 10},
+        function(index, parameters) {
+            var speed = Math.random() * 40 + 40;
+            var angle = Math.random() * 2 * Math.PI;
+            parameters.velocity = math.matrix4.transformPoint(
+                math.matrix4.rotationZ(angle), [speed, 0, 0]);
+            parameters.acceleration = math.mulVectorVector(
+                parameters.velocity, [speed * -0.001, speed * -0.001, 0]);
+        });
+    return tdl.particles.createOneShotManager(emitter, maxExplosions);
+  }
+
+  function setupShieldhits(particleSystem, maxShieldhits) {
+    var shieldhits = [];
+    var emitter = particleSystem.createParticleEmitter();
+    emitter.setState(tdl.particles.ParticleStateIds.ADD);
+    emitter.setColorRamp(
+        [1, 1, 1, 1,
+         0, 1, 1, 1,
+         0, 0, 1, 1,
+         0, 0, 1, 0.5,
+         0, 0, 1, 0]);
+    emitter.setParameters({
+        numParticles: 60,
+        lifeTime: 0.7,
+        startTime: 0,
+        startSize: 10.0,
+        endSize: 10.0,
+        spinSpeedRange: 10},
+        function(index, parameters) {
+            var speed = Math.random() * 40 + 40;
+            var angle = Math.random() * 2 * Math.PI;
+            parameters.velocity = math.matrix4.transformPoint(
+                math.matrix4.rotationZ(angle), [speed, 0, 0]);
+            parameters.acceleration = math.mulVectorVector(
+                parameters.velocity, [speed * -0.001, speed * -0.001, 0]);
+        });
+    return tdl.particles.createOneShotManager(emitter, maxShieldhits);
+  }
+
+  this.ship = makeShip();
+  this.outlineShip = makeOutlineShip();
+  this.twoToneShip = makeTwoToneShip();
+  this.shot = makeShot();
+  this.shield = makeShield();
+  this.leadMark = makeLeadMark();
+
+  this.shotColors = [
+    new Float32Array([0.5, 0.0, 0.0, 1]),
+    new Float32Array([1.0, 0.0, 0.0, 1]),
+    new Float32Array([1.0, 0.5, 0.0, 1]),
+    new Float32Array([1.0, 1.0, 0.0, 1]),
+    new Float32Array([1.0, 1.0, 1.0, 1]),
+    new Float32Array([1.0, 1.0, 0.0, 1]),
+    new Float32Array([1.0, 0.0, 0.0, 1]),
+    new Float32Array([1.0, 0.5, 0.0, 1])
+  ];
+
+  this.shieldColors = [
+    new Float32Array([0.0, 0.0, 1, 1]),
+    new Float32Array([0.5, 0.5, 1, 1]),
+    new Float32Array([1.0, 1.0, 1, 1]),
+    new Float32Array([0.5, 0.5, 1, 1]),
+  ];
+
+  this.matrix = new Float32Array([1,0,0,0,1,0,0,0,1]);
+  this.constUniforms = {
+    screenDimensions: this.screenDimensions
+  };
+  this.uniforms = {
+    matrix: this.matrix
+  };
+
+  this.starParticleSystem = new tdl.particles.ParticleSystem(
+      gl, null, tdl.math.pseudoRandom);
+  setupStars(this.starParticleSystem);
+  this.particleSystem = new tdl.particles.ParticleSystem(
+      gl, null, tdl.math.pseudoRandom);
+  this.explosions = setupExplosions(this.particleSystem, 20);
+  this.shieldhits = setupShieldhits(this.particleSystem, 20);
+  this.world = fast.matrix4.identity(new Float32Array(16));
+  this.view = fast.matrix4.identity(new Float32Array(16));
+  //this.projection = fast.matrix4.identity(new Float32Array(16));
+  this.viewProjection = fast.matrix4.identity(new Float32Array(16));
+  this.viewInverse = fast.matrix4.identity(new Float32Array(16));
+
+  this.baseFBO = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height, true);
+  this.persistentFBO1 = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height);
+  this.persistentFBO2 = tdl.framebuffers.createFramebuffer(
+      this.canvas.width, this.canvas.height);
+
+  this.persistPlane = makePersist(
+      this.baseFBO.texture, this.persistentFBO1.texture);
+
+  this.lastPlane = makeLastPlane(this.persistentFBO2.texture);
+  this.leadMarkInfo = {on:false,x:0,y:0,direction:0,color:[1,1,1,1]};
+}
+
+WebGLRenderer.prototype.resize = function() {
+  var width = this.canvas.clientWidth;
+  var height = this.canvas.clientHeight;
+  if (this.canvas.width != width ||
+      this.canvas.height != height) {
+    this.canvas.width = width;
+    this.canvas.height = height;
+    //tdl.log("new width:", width);
+    //tdl.log("new height:", height);
+    this.screenDimensions[0] = 2 / width;
+    this.screenDimensions[1] = 2 / height;
+    gl.viewport(0, 0, width, height);
+    this.projection = [
+      2 / width, 0, 0, 0,
+      0, -2 / height, 0, 0,
+      0, 0, 1, 0,
+      -1 + 1 / width, 1 - 1 / height, 0, 1];
+  }
+};
+
+WebGLRenderer.prototype.begin = function(elapsedTime) {
+  ++this.renderCount;
+  this.leadMarkInfo.on = false;
+  this.ships = [];
+  this.outlineShips = [];
+  this.twoToneShips = [];
+  this.shields = [];
+  this.shots = [];
+  this.screenDimensions[0] = 2 / this.canvas.width;
+  this.screenDimensions[1] = 2 / this.canvas.height;
+  this.baseFBO.bind();
+  gl.colorMask(true, true, true, true);
+  gl.depthMask(true);
+  gl.clearColor(0,0,0,0);
+  gl.clearDepth(1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+};
+
+WebGLRenderer.prototype.end = function(elapsedTime) {
+  this.renderShips();
+  this.renderShields();
+  this.renderShots();
+
+  //this.particleSystem.draw(this.viewProjection, this.world, this.viewInverse);
+  this.particleSystem.draw(this.projection, this.world, this.viewInverse);
+  gl.disable(gl.BLEND);
+  gl.disable(gl.DEPTH_TEST);
+  this.baseFBO.unbind();
+
+  // blend base with persist1 into persist2
+  this.persistentFBO2.bind();
+  this.persistPlane.drawPrep({persistence: 0.1});
+  this.persistPlane.draw({oldRender: this.persistentFBO1.texture});
+  this.persistentFBO2.unbind();
+
+  // draw on the backbuffer.
+  gl.colorMask(true, true, true, false);
+  gl.clearColor(0,0,0,0);
+  gl.clearDepth(1);
+  gl.depthMask(true);  // Bug in Chrome?
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+  this.lastPlane.drawPrep();
+  this.lastPlane.draw({texture: this.persistentFBO2.texture});
+  this.starParticleSystem.draw(this.projection, this.world, this.viewInverse);
+  var lm = this.leadMarkInfo;
+  this.drawLeadMark_([lm.x, lm.y], lm.direction, lm.color);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.BLEND);
+
+  // swap persist FBOs.
+  var temp = this.persistentFBO1;
+  this.persistentFBO1 = this.persistentFBO2;
+  this.persistentFBO2 = temp;
+};
+
+WebGLRenderer.prototype.drawShip = function(position, direction, color) {
+  this.ships.push({
+    x: position[0],
+    y: position[1],
+    direction: direction,
+    color: color.glColor
+  });
+};
+
+WebGLRenderer.prototype.drawOutlineShip = function(
+    position, direction, color) {
+  this.outlineShips.push({
+    x: position[0],
+    y: position[1],
+    direction: direction,
+    color: color.glColor
+  });
+};
+
+WebGLRenderer.prototype.drawTwoToneShip = function(
+    position, direction, color) {
+  this.twoToneShips.push({
+    x: position[0],
+    y: position[1],
+    direction: direction,
+    color: color.glColor
+  });
+};
+
+WebGLRenderer.prototype.drawShips_ = function() {
+  var model = this.ship;
+  model.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.ships.length; ++ii) {
+    var info = this.ships[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    this.uniforms.color = info.color;
+    model.draw(this.uniforms);
+  }
+};
+
+WebGLRenderer.prototype.drawOutlineShips_ = function() {
+  var model = this.ship;
+  var black = new Float32Array([0,0,0,1]);
+  this.uniforms.color = black;
+  model.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.outlineShips.length; ++ii) {
+    var info = this.outlineShips[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    model.draw(this.uniforms);
+  }
+  var model = this.outlineShip;
+  model.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.outlineShips.length; ++ii) {
+    var info = this.outlineShips[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    this.uniforms.color = info.color;
+    model.draw(this.uniforms);
+  }
+};
+
+WebGLRenderer.prototype.drawTwoToneShips_ = function() {
+  var model = this.twoToneShip;
+  model.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.twoToneShips.length; ++ii) {
+    var info = this.twoToneShips[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    this.uniforms.color = info.color;
+    model.draw(this.uniforms);
+  }
+};
+
+WebGLRenderer.prototype.drawLeadMark_ = function(position, direction, color) {
+  this.leadMark.drawPrep(this.constUniforms);
+  var m = this.matrix;
+  m[0] = 1;
+  m[1] = 0;
+  m[3] = 0;
+  m[4] = 1;
+  m[6] = position[0] + 15;
+  m[7] = position[1] - 15;
+
+  this.uniforms.color = color;
+  this.leadMark.draw(this.uniforms);
+};
+
+WebGLRenderer.prototype.renderShips = function(info) {
+  this.drawShips_();
+  this.drawOutlineShips_();
+  this.drawTwoToneShips_();
+};
+
+WebGLRenderer.prototype.drawShield = function(position, direction, color) {
+  this.shields.push({
+    x: position[0],
+    y: position[1],
+    direction: direction,
+    color: color.glColor
+  });
+};
+
+WebGLRenderer.prototype.drawLeadMark = function(position, direction, color) {
+  var lm = this.leadMarkInfo;
+  lm.x = position[0];
+  lm.y = position[1];
+  lm.direction = direction;
+  lm.color = color.glColor;
+};
+
+WebGLRenderer.prototype.renderShields = function() {
+  this.shield.drawPrep(this.constUniforms);
+  count = this.renderCount;
+  for (var ii = 0; ii < this.shields.length; ++ii) {
+    var info = this.shields[ii];
+    var c = Math.cos(info.direction);
+    var s = Math.sin(info.direction);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+
+    this.uniforms.color = this.shieldColors[count++ % this.shieldColors.length];
+    this.shield.draw(this.uniforms);
+  }
+};
+
+WebGLRenderer.prototype.drawShot = function(position, count) {
+  this.shots.push({
+    x: position[0],
+    y: position[1],
+    count: count
+  });
+};
+
+WebGLRenderer.prototype.renderShots = function() {
+  this.shot.drawPrep(this.constUniforms);
+  for (var ii = 0; ii < this.shots.length; ++ii) {
+    var info = this.shots[ii];
+    var c = Math.cos(0);
+    var s = Math.sin(0);
+
+    var m = this.matrix;
+    m[0] = c;
+    m[1] = s;
+    m[3] = -s;
+    m[4] = c;
+    m[6] = info.x;
+    m[7] = info.y;
+    this.uniforms.color = this.shotColors[info.count % this.shotColors.length];
+
+    this.shot.draw(this.uniforms);
+  }
+};
+
+WebGLRenderer.prototype.startExplosion = function(position, direction, color) {
+  var _tp_ = tdl.fast.matrix4.rotationZ(new Float32Array(16), Math.random() * Math.PI * 2);
+  _tp_[12] = position[0];
+  _tp_[13] = position[1];
+  // We have multiple explosions because if you only have one and it is still going
+  // when you trigger it a second time it will immediately start over.
+  this.explosions.startOneShot(_tp_);
+};
+
+WebGLRenderer.prototype.startShieldHit = function(position) {
+  var _tp_ = tdl.fast.matrix4.rotationZ(new Float32Array(16), Math.random() * Math.PI * 2);
+  _tp_[12] = position[0];
+  _tp_[13] = position[1];
+  // We have multiple shieldhits because if you only have one and it is still going
+  // when you trigger it a second time it will immediately start over.
+  this.shieldhits.startOneShot(_tp_);
+};
+
+/**
+ * Player represnt a player in the game.
+ * @constructor
+ */
+function Player(x, y, direction, clientId, opt_name) {
+  var isMetaQueuePlayer = clientId < 0;
+  g_entitySys.addEntity(this);
+  if (!isMetaQueuePlayer) {
+    ++g_playerCount;
+    this.clientId = clientId;
+  }
+  this.isMetaQueuePlayer = isMetaQueuePlayer;
+  this.position = [x, y];
+  this.hp = 3;
+  this.color = ships.makeColor(g_playerCount + g_startCount);
+  this.send({
+    cmd: 'setColor',
+    color: this.color.canvasColor,
+    style: this.color.style
+  });
+  if (opt_name) {
+    this.playerName = opt_name;
+  } else {
+    this.playerName = "Player" + (++g_totalPlayerCount);
+  }
+  this.turn = 0;
+  this.targetDir = -1;
+  this.direction = direction;
+  this.fire = false;
+  this.vel = 200;
+  this.turnVel = Math.PI * 0.5;
+  this.shots = [];
+  this.maxShots = 2;
+  this.shotDuration = 3;
+  this.shootTimer = 0;
+  this.score = 0;
+  this.timer = 0;
+  this.launchDuration = 0.5;
+  this.showPlaceInQueue = false;
+  this.invincibilityTimer = 0;
+
+  // If true the player is entering their name.
+  // Don't launch them if they are in the queue.
+  // TODO(gman): Implement this?
+  this.busy = false;
+
+  if (isMetaQueuePlayer) {
+    this.setState('fly');
+  } else {
+    if (window.io || g_activePlayers.length >= 2) {
+      this.addToQueue();
+    } else {
+      this.setState('fly');
+      g_activePlayers.push(this);
+    }
+  }
+}
+
+Player.prototype.timesUp = function(elapsedTime) {
+  this.timer -= elapsedTime;
+  return this.timer <= 0;
+};
+
+Player.prototype.addToQueue = function() {
+  g_queueMgr.addToQueue(this);
+  this.setState('queued');
+}
+
+Player.prototype.setState = function(state) {
+  //tdl.log(this.id, state);
+  this.state = state;
+  this.process = this["state_" + state];
+}
+
+Player.prototype.shoot = function() {
+  if (this.shots.length >= this.maxShots) {
+    this.removeShot(this.shots[0]);
+  }
+
+  audio.play_sound('fire');
+  var shot = new Shot(
+    this.position[0] + -Math.sin(this.direction) * 15,
+    this.position[1] +  Math.cos(this.direction) * 15,
+    this.direction, this);
+  g_shotsById[shot.id] = shot;
+  this.shots.push(shot);
+};
+
+Player.prototype.removeShot = function(shot) {
+  var ndx = this.shots.indexOf(shot);
+  this.shots.splice(ndx, 1);
+  delete g_shotsById[shot.id];
+  g_entitySys.deleteEntityById(shot.id);
+};
+
+Player.prototype.removeFromActive = function() {
+  for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+    if (g_activePlayers[ii].id == this.id) {
+      g_activePlayers.splice(ii, 1);
+      return;
+    }
+  }
+};
+
+Player.prototype.removeFromGame = function() {
+  g_queueMgr.removeFromQueue(this);
+  this.removeFromActive();
+  while (this.shots.length) {
+    this.removeShot(this.shots[0]);
+  }
+  g_entitySys.deleteEntity(this);
+}
+
+Player.prototype.update = function(msg) {
+  switch (msg.cmd) {
+    case 'turn':
+      this.turn = msg.turn;
+      this.targetDir = -1;
+      break;
+    case 'target':
+      this.targetDir = msg.target;
+      this.turn = 0;
+      break;
+    case 'fire':
+      this.fire = msg.fire;
+      if (this.fire == 0)
+        this.shootTimer = 0;
+      break;
+    case 'name':
+      if (!msg.name) {
+        this.send({
+          cmd: 'setName',
+          name: this.playerName
+        });
+      } else {
+        this.showPlaceInQueue = true;
+        this.playerName = msg.name.replace(/[<>]/g, '');
+        g_updateStatus = true;
+      }
+      break;
+    case 'busy':
+      this.busy = msg.busy;
+      break;
+  }
+};
+
+Player.prototype.state_queued = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
+
+  g_metaQueuePlayer.accum.turn += this.turn;
+  g_metaQueuePlayer.accum.turnCount += (this.turn != 0) ? 1 : 0;
+  if (this.targetDir >= 0) {
+    g_metaQueuePlayer.accum.targetDirVec[0] += Math.sin(this.targetDir);
+    g_metaQueuePlayer.accum.targetDirVec[1] += Math.cos(this.targetDir);
+  }
+  g_metaQueuePlayer.accum.fire += this.fire;
+  g_metaQueuePlayer.accum.count += 1;
+};
+
+Player.prototype.send = function(cmd) {
+  sendCmd("client", this.clientId, cmd);
+};
+
+Player.prototype.countdown = function() {
+  this.timer = 3;
+  this.setState('countdown');
+  if (this.showPlaceInQueue) {
+    this.send({
+      cmd: 'launch'
+    });
+  }
+};
+
+Player.prototype.state_countdown = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
+  if (this.timesUp(elapsedTime)) {
+    this.position[0] = Math.random() * g_canvas.width / 2;
+    this.position[1] = Math.random() * g_canvas.height;
+    this.direction = Math.random() * Math.PI * 2;
+
+    this.timer = this.launchDuration;
+    this.setState('launch');
+    g_activePlayers.push(this);
+    g_queueMgr.removeFromQueue(this);
+    audio.play_sound('launch');
+  }
+};
+
+Player.prototype.state_launch = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
+  if (this.timesUp(elapsedTime)) {
+    this.invincibilityTimer = 3;
+    this.setState('fly');
+  }
+};
+
+Player.prototype.updateDirection = function(elapsedTime) {
+  // turn player based on this.turn (-1, 0, 1)
+  this.direction += this.turnVel * this.turn * elapsedTime;
+  this.direction = this.direction % (Math.PI * 2);
+  // turn player based on target
+  if (this.targetDir >= 0) {
+    var targetDir = this.targetDir;
+    var delta = targetDir - this.direction;
+    if (Math.abs(delta) > Math.PI) {
+      if (delta > 0) {
+        targetDir -= Math.PI * 2;
+      } else {
+        targetDir += Math.PI * 2;
+      }
+    }
+    delta = targetDir - this.direction;
+    var turn = delta > 0 ? 1 : -1;
+    var turnVel = Math.min(Math.abs(delta), this.turnVel);
+    this.direction += turnVel * turn * elapsedTime;
+    this.direction = this.direction % (Math.PI * 2);
+  }
+};
+
+Player.prototype.state_fly = function(elapsedTime) {
+  this.updateDirection(elapsedTime);
+  var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
+  var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
+  updatePos(this.position, dx, dy);
+  this.shootTimer = Math.max(this.shootTimer - elapsedTime, 0);
+  if (this.fire && this.shootTimer <= 0) {
+    this.shoot();
+    this.shootTimer = this.maxShots / this.shotDuration;
+  }
+  if (this.invincibilityTimer > 0) {
+    this.invincibilityTimer -= elapsedTime;
+  }
+  this.checkCollisions();
+};
+
+Player.prototype.checkCollisions = function() {
+  // collide with other players?
+  // TODO(gman): try to optimize this. Player 1 should check
+  // 2, 3, 4.  2 against 3, 4,  3 against 4.
+  var hit = null;
+  for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+    var player = g_activePlayers[ii];
+    // If we are not ourself and we are not the ghost
+    if (player.id != this.id) {
+      if (player.collide(this.position[0], this.position[1], 5)) {
+        player.die(this, this, true);
+        hit = player;
+      }
+    }
+  }
+  // If we collided with someone
+  if (hit && this.invincibilityTimer <= 0) {
+    this.die(player, player, true);
+  }
+};
+
+/**
+ * Puts the player in the death state.
+ * Returns true if the killer should get a point.
+ */
+Player.prototype.die = function(killer, collider, crash) {
+  if (this.invincibilityTimer > 0) {
+    audio.play_sound('hitshield');
+    g_renderer.startShieldHit(collider.position);
+    return false;
+  }
+  audio.play_sound('explosion');
+  this.timer = 2;
+  this.setState('die');
+  this.removeFromActive();
+  this.send({
+    cmd: 'die',
+    killer: killer.playerName,
+    crash: crash
+  });
+  if (!crash) {
+    killer.send({
+      cmd: 'kill',
+      killed: this.playerName
+    });
+  }
+  this.showPlaceInQueue = true;
+  g_renderer.startExplosion(
+      this.position,
+      this.direction,
+      this.color);
+  if (killer == g_metaQueuePlayer) {
+    g_metaQueuePlayer.timer = 3;
+    g_metaQueuePlayer.setState('die');
+  }
+  return true;
+};
+
+Player.prototype.state_die = function(elapsedTime) {
+  if (this.timesUp(elapsedTime)) {
+    this.addToQueue();
+  }
+};
+
+Player.prototype.collide = function(x, y, radius) {
+  // TODO: need to put colliables on their own list or something
+  // so queued players are not being checked.
+  if (this.state != 'fly') {
+    return false
+  }
+  var dx = x - this.position[0];
+  var dy = y - this.position[1];
+  var distSq = dx * dx + dy * dy;
+  var radius =  ((this.invincibilityTimer > 0) ? 20 : 10) + radius;
+  return distSq < radius * radius;
+};
+
+Player.prototype.draw = function(renderer) {
+  var shipRenderFunc = renderer[ships.styles[this.color.style]];
+
+  switch (this.state) {
+    case 'fly':
+      shipRenderFunc.call(
+          renderer, this.position, this.direction, this.color);
+      if (this.invincibilityTimer > 0) {
+        renderer.drawShield(this.position, this.direction, this.color);
+      }
+      return;
+    case 'launch':
+      var sy = g_canvas.height / 2 + 20;
+      var sx = g_canvas.width + 20;
+      var t = this.timer / this.launchDuration;
+      shipRenderFunc.call(
+          renderer,
+          [tdl.math.lerpScalar(this.position[0], sx, t),
+           tdl.math.lerpScalar(this.position[1], sy, t)],
+          tdl.math.lerpCircular(this.direction, Math.PI, t, Math.PI * 2),
+          this.color);
+      return;
+  }
+};
+
+/**
+ * MetaQueuePlayer is a group controlled player when players are in queue
+ * @constructor
+ */
+function MetaQueuePlayer(x, y, direction) {
+  Player.call(this, x, y, direction, -1, "The Ghost");
+  this.accumClear();
+  this.fadeOutRate = 1; /* seconds == 1 */
+  this.fade = 0;
+};
+tdl.base.inherit(MetaQueuePlayer, Player);
+
+MetaQueuePlayer.prototype.send = function() {
+  // do nothing.
+};
+
+MetaQueuePlayer.prototype.checkCollisions = function() {
+  if (this.fade < 0.3) {
+    return;
+  }
+  return Player.prototype.checkCollisions.call(this);
+};
+
+MetaQueuePlayer.prototype.collide = function(x, y, radius) {
+  if (this.fade < 0.3) {
+    return false;
+  }
+  return Player.prototype.collide.call(this, x, y, radius);
+};
+
+MetaQueuePlayer.prototype.accumClear = function() {
+  if (!this.accum)
+    this.accum = new Object();
+  this.accum.turn = 0;
+  this.accum.turnCount = 0;
+  this.accum.targetDirVec = [0,0];
+  this.accum.fire = 0;
+  this.accum.count = 0;
+};
+
+MetaQueuePlayer.prototype.draw = function(renderer) {
+  // comment in for debug rendering
+  //renderer.drawShip(
+  //    this.position, this.direction,
+  //    {glColor: [1,0,0,1], canvasColor:"rgb(255,0,0)"});
+  var a = Math.max(0, Math.min(1, this.fade));
+  if (a == 0)
+    return;
+  var black = {glColor: [0,0,0,1], canvasColor: "rgb(0,0,0)"};
+  var white = {glColor: [1,1,1,1], canvasColor: "rgb(255,255,255)"};
+  switch (0) {
+  case 0:
+    var randShakePixels = 4;
+    renderer.drawShip(
+      add2D(this.position,
+        a*(-randShakePixels+2*randShakePixels*Math.random()),
+        a*(-randShakePixels+2*randShakePixels*Math.random())),
+      this.direction, white);
+    break;
+  case 1:
+    renderer.drawShip(add2D(this.position, 0, 2*a), this.direction, white);
+    renderer.drawShip(add2D(this.position, 2*a, 0), this.direction, white);
+    break;
+  }
+  renderer.drawShip(this.position, this.direction, black);
+};
+
+MetaQueuePlayer.prototype.state_fly = function(elapsedTime) {
+  this.turn = 0;
+  this.targetDir = [0, 0];
+  this.fire = 0;
+  this.fade -= elapsedTime * this.fadeOutRate;
+
+  if (this.accum.turnCount) {
+    this.turn = this.accum.turn / this.accum.turnCount;
+    this.fade = 1;
+  }
+  if (this.accum.targetDirVec[0] != 0 || this.accum.targetDirVec[1] != 0) {
+    this.targetDir = Math.atan2(
+      this.accum.targetDirVec[0],
+      this.accum.targetDirVec[1]);
+    this.targetDir = (2 * Math.PI + this.targetDir) % (2 * Math.PI);
+    this.fade = 1;
+  }
+  if (this.accum.fire > 0) {
+    this.fire = 1;
+    this.fade = 1;
+  }
+  this.accumClear();
+  Player.prototype.state_fly.call(this, elapsedTime);
+};
+
+MetaQueuePlayer.prototype.state_die = function(elapsedTime) {
+  this.fade -= elapsedTime * this.fadeOutRate;
+  if (this.timesUp(elapsedTime)) {
+    this.position[0] = Math.random() * g_canvas.width;
+    this.position[1] = Math.random() * g_canvas.height;
+    this.direction = Math.random() * Math.PI * 2;
+    this.setState('fly');
+  }
+};
+
+/**
+ * A shot.
+ * @constructor
+ */
+function Shot(x, y, direction, owner) {
+  this.owner = owner;
+  this.position = [x, y];
+  this.vel = 300;
+  this.duration = owner.shotDuration;
+  this.direction = direction;
+  this.drawCount = 0;
+
+  this.matrix = new Float32Array([1,0,0,0,1,0,0,0,1]);
+  this.uniforms = {
+    matrix: this.matrix
+  };
+
+  g_entitySys.addEntity(this);
+}
+
+Shot.prototype.remove = function() {
+  this.owner.removeShot(this);
+};
+
+Shot.prototype.process = function(elapsedTime) {
+  this.duration -= elapsedTime;
+  if (this.duration <= 0) {
+    this.remove();
+  } else {
+    var dx = -Math.sin(this.direction) * this.vel * elapsedTime;
+    var dy =  Math.cos(this.direction) * this.vel * elapsedTime;
+    updatePos(this.position, dx, dy);
+
+    var hit = false;
+    for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+      var player = g_activePlayers[ii];
+      if (player.id != this.owner.id) {
+        if (player.collide(this.position[0], this.position[1], 3)) {
+          hit = true;
+          if (player.die(this.owner, this, false)) {
+            ++this.owner.score;
+          }
+        }
+      }
+    }
+    if (hit) {
+      this.remove();
+    }
+  }
+};
+
+Shot.prototype.draw = function(renderer) {
+  renderer.drawShot(this.position, ++this.drawCount);
+};
+
+function updatePos(pos, dx, dy) {
+  var x = pos[0] + dx;
+  if (x < 0) {
+    x = g_canvas.width - 1;
+  } else if (x >= g_canvas.width) {
+    x = 0;
+  }
+
+  var y = pos[1] + dy;
+  if (y < 0) {
+    y = g_canvas.height - 1;
+  } else if (y >= g_canvas.height) {
+    y = 0;
+  }
+
+  pos[0] = x;
+  pos[1] = y;
+}
+function add2D(pos, dx, dy) {
+  return [pos[0] + dx, pos[1] + dy];
+}
+
+/**
+ * Manages a visible list of players for like the highscore or queue display.
+ *
+ */
+function PListManager(element) {
+  this.element_ = element;
+  this.elements_ = [];
+  this.shipImages_ = [];
+  this.shipImageCursors_ = [];
+  this.shipURLs_ = [];
+
+  var canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  var ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#008";
+  ctx.globalCompositeOperation = "copy";
+  ctx.fillRect(0, 0, 32, 32);
+  ships.drawShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
+  this.shipURLs_.push(canvas.toDataURL());
+  ctx.fillRect(0, 0, 32, 32);
+  ships.drawOutlineShip(ctx, 16, 16, Math.PI, "rgba(0,0,0,0)");
+  this.shipURLs_.push(canvas.toDataURL());
+  ctx.fillRect(0, 0, 32, 32);
+  ships.drawTwoToneShip(
+      ctx, 16, 16, Math.PI, "rgba(0,0,0,0)", "rgba(0,0,0,0.5)");
+  this.shipURLs_.push(canvas.toDataURL());
+}
+
+/**
+ * Call before updating the list
+ */
+PListManager.prototype.begin = function() {
+  this.cursor_ = 0;
+  this.shipImageCursors_ = [0, 0, 0];
+};
+
+/**
+ * Call after updating the list
+ */
+PListManager.prototype.end = function() {
+  for (var ii = this.cursor_; ii < this.elements_.length; ++ii) {
+    var element = this.elements_[ii];
+    element.line.style.display = "none";
+  }
+};
+
+PListManager.prototype.getElement_ = function(index) {
+  var element = this.elements_[index];
+  if (!element) {
+    line = document.createElement("div");
+    line.style.position = "relative";
+    line.style.height = "40px";
+    line.style.display = "block";
+    //line.style.verticalAlign = "middle";
+    var span = document.createElement("div");
+    span.style.width = "32px";
+    span.style.height = "32px";
+    span.style.position = "absolute";
+    span.style.top = "0px";
+    span.style.left = "0px";
+    var img = document.createElement("span");
+    img.style.zIndex = 5;
+    img.style.position = "absolute";
+    img.style.top = "0px";
+    img.style.left = "0px";
+    var info = document.createElement("div");
+    info.style.position = "absolute";
+    info.style.top = "4px";
+    info.style.left = "40px";
+    info.style.color = "white";
+    info.style.fontFamily = "sans-serif";
+    info.style.fontSize = "20px";
+    var name = document.createElement("span");
+    var msg = document.createElement("span");
+    info.appendChild(msg);
+    info.appendChild(name);
+    line.appendChild(span);
+    line.appendChild(img);
+    line.appendChild(info);
+    this.element_.appendChild(line);
+    var element = {
+      line: line,
+      span: span,
+      img: img,
+      msg: msg,
+      name: name
+    };
+    this.elements_.push(element);
+  }
+  return element;
+};
+
+PListManager.prototype.getShipImg_ = function(style) {
+  var images = this.shipImages_[style];
+  if (!images) {
+    images = [];
+    this.shipImages_[style] = images;
+  }
+  var img = images[this.shipImageCursors_[style]++];
+  if (!img) {
+    img = document.createElement("img");
+    img.src = this.shipURLs_[style];
+    images.push(img);
+  }
+  return img;
+};
+
+PListManager.prototype.setElement = function(player, launching, msg) {
+  var img = this.getShipImg_(player.color.style);
+  var element = this.getElement_(this.cursor_++);
+  var child = element.img.firstChild;
+  if (child) {
+    element.img.removeChild(child);
+  }
+  element.img.appendChild(img);
+  element.line.style.display = "block";
+  element.msg.innerHTML = msg;
+  element.name.innerHTML = player.playerName;
+  element.span.style.backgroundColor = player.color.canvasColor;
+  if (launching) {
+    element.name.color = "#f00";
+  } else {
+    element.name.color = "#ff0";
+  }
+};
+
+
+/**
+ * Manages the Queue of players waiting.
+ */
+function QueueManager() {
+  this.launching_ = [];
+  this.queue_ = [];
+  this.timer_ = 0;
+
+  this.plist = new PListManager($("queue"));
+
+//  this.rowHeight_ = 40;
+//  this.canvas_ = $("queue-canvas");
+//  this.ctx_ = this.canvas_.getContext("2d");
+//  this.resize();
+};
+
+//QueueManager.prototype.resize = function() {
+//  if (this.canvas_.width != this.canvas_.clientWidth ||
+//      this.canvas_.height != this.canvas_.clientHeight) {
+//    this.canvas_.width = this.canvas_.clientWidth;
+//    this.canvas_.height = this.canvas_.clientHeight;
+//    tdl.log("newq width:", this.canvas_.width);
+//    tdl.log("newq height:", this.canvas_.height);
+//  }
+//};
+//
+//QueueManager.prototype.draw = function() {
+//  this.resize();
+//  var ctx = this.ctx_;
+//  var canvas = this.canvas_;
+//  var height = this.canvas_.height;
+//  ctx.clearRect(0, 0, this.canvas_.width, this.canvas_.height);
+//  // draw launching players
+//  var y = 0;
+//  var count = 0;
+//  for (var ii = 0; y < height && ii < this.launching_.length; ++ii) {
+//    var player = this.launching_[ii];
+//    this.drawPlayer(player, y, count, true);
+//    y += this.rowHeight_;
+//    ++count;
+//  }
+//  // draw queued players.
+//  for (var ii = 0; y < height && ii < this.queue_.length; ++ii) {
+//    var player = this.queue_[ii];
+//    this.drawPlayer(player, y, count, false);
+//    y += this.rowHeight_;
+//    ++count;
+//  }
+//};
+//
+//QueueManager.prototype.drawPlayer = function(player, y, count, launching) {
+//  var ctx = this.ctx_;
+//  var canvas = this.canvas_;
+//  var width = this.canvas_.width;
+//  ctx.fillStyle = count % 2 ? "#006" : "#00A";
+//  var color = player.color.canvasColor;
+//  if (launching) {
+//    var cl = Math.floor(player.timer * 16);
+//    switch (cl % 4) {
+//    case 0:
+//      color = "#f00";
+//      break;
+//    case 2:
+//      color = "#ff0";
+//    }
+//  }
+//  ctx.fillRect(0, 0, width, this.rowHeight_);
+//  drawShip(
+//      ctx,
+//      this.rowHeight_ / 2,
+//      y + this.rowHeight_ / 2,
+//      player.direction,
+//      color);
+//};
+
+QueueManager.prototype.draw = function() {
+  this.plist.begin();
+  this.setElements_(0, this.launching_, true);
+  this.setElements_(this.launching_.length, this.queue_, false);
+  this.plist.end();
+};
+
+QueueManager.prototype.setElements_ = function(index, players, launching) {
+  for (var ii = 0; ii < players.length; ++ii) {
+    this.plist.setElement(players[ii], launching, "");
+  }
+};
+
+QueueManager.prototype.sendPlaceInQueue = function(player) {
+  if (player.showPlaceInQueue) {
+    player.send({
+      cmd: 'queue',
+      count: player.placeInQueue
+    });
+  }
+};
+
+QueueManager.prototype.sendPlaces = function() {
+  for (var ii = 0; ii < this.queue_.length; ++ii) {
+    var player = this.queue_[ii];
+    player.placeInQueue = ii;
+    this.sendPlaceInQueue(player);
+  }
+};
+
+QueueManager.prototype.addToQueue = function(player) {
+  player.placeInQueue = this.queue_.length;
+  this.queue_.push(player);
+  this.draw();
+};
+
+QueueManager.prototype.removeFromQueue = function(player) {
+  for (var ii = 0; ii < this.queue_.length; ++ii) {
+    if (this.queue_[ii].id == player.id) {
+      this.queue_.splice(ii, 1);
+      this.draw();
+      this.sendPlaces();
+      return;
+    }
+  }
+  for (var ii = 0; ii < this.launching_.length; ++ii) {
+    if (this.launching_[ii].id == player.id) {
+      this.launching_.splice(ii, 1);
+      this.draw();
+      return;
+    }
+  }
+};
+
+QueueManager.prototype.process = function(elapsedTime) {
+  if (this.timer_ > 0) {
+    this.timer_ -= elapsedTime;
+  } else {
+    if (this.queue_.length > 0 &&
+        g_activePlayers.length + this.launching_.length < g_maxActivePlayers) {
+      var player = this.queue_.shift()
+      player.countdown();
+      this.launching_.push(player);
+      this.timer_ = 1;  // don't start another for at least 1 second.
+      this.draw();
+    }
+  }
+};
+
+/**
+ * Manages the high score list.
+ */
+
+function ScoreManager() {
+  this.plist_ = new PListManager($("highscore"));
+  this.maxScores_ = 10;
+  this.orderedPlayers_ = [];
+  this.zeros_ = "";
+}
+
+ScoreManager.prototype.calculateScores = function() {
+  this.orderedPlayers_ = [];
+  var maxScore = 0;
+  for (var id in g_players) {
+    var player = g_players[id];
+    this.orderedPlayers_.push(player);
+    maxScore = Math.max(maxScore, player.score);
+  }
+
+  this.orderedPlayers_.sort(function(a, b) {
+    if (a.score > b.score)
+      return -1;
+    else if (a.score < b.score)
+      return 1;
+    else if (a.id < b.id)
+      return -1;
+    else
+      return 1;
+  });
+
+  if (this.orderedPlayers_.length > this.maxScores_)
+    this.orderedPlayers_.length = this.maxScores_;
+
+  var numDigits = maxScore.toString().length;
+  if (numDigits < this.zeros_.length) {
+    this.zeros_ = this.zeros_.substr(0, numDigits);
+  } else {
+    while (this.zeros_.length < numDigits) {
+      this.zeros_ += "0";
+    }
+  }
+};
+
+ScoreManager.prototype.drawScores = function() {
+  this.plist_.begin();
+  for (var ii = 0; ii < this.orderedPlayers_.length; ++ii) {
+    var player = this.orderedPlayers_[ii];
+    var score = player.score.toString();
+    if (score.length < this.zeros_.length) {
+      score = score + this.zeros_.substr(score.length);
+    }
+    this.plist_.setElement(player, false, score + ": ");
+  }
+  this.plist_.end();
+};
+
+ScoreManager.prototype.update = function() {
+  this.calculateScores();
+  this.drawScores();
+};
+
+ScoreManager.prototype.draw = function(renderer) {
+  if (this.orderedPlayers_.length > 1 &&
+      this.orderedPlayers_[0].score > this.orderedPlayers_[1].score) {
+    var lead = this.orderedPlayers_[0];
+    renderer.drawLeadMark(
+        lead.position, lead.direction,
+        {glColor: new Float32Array([1,0,0,1]), canvasColor:"rgb(255,0,0)"});
+
+  }
+};
+
+/**
+ * Processes and Draws all the entities.
+ * An entity is currently losely defined as any object that has
+ * a process and a draw function.
+ */
+function EntitySystem() {
+  this.entities_ = {};
+  this.numEntities_ = 0;
+  this.nextId_ = 1;
+  this.removeEntities_ = [];
+}
+
+EntitySystem.prototype.addEntity = function(entity) {
+  var id = this.nextId_++;
+  entity.id = id;
+  this.entities_[id] = entity;
+  ++this.numEntities_;
+};
+
+EntitySystem.prototype.deleteEntity = function(entity) {
+  this.deleteEntityById(entity.id);
+};
+
+EntitySystem.prototype.deleteEntityById = function(id) {
+  this.removeEntities_.push(id);
+};
+
+EntitySystem.prototype.processEntities = function(elapsedTime) {
+  for (var id in this.entities_) {
+    this.entities_[id].process(elapsedTime);
+  }
+  while (this.removeEntities_.length) {
+    delete this.entities_[this.removeEntities_.pop()];
+    --this.numEntities_;
+  }
+};
+
+function main() {
+  g_canvas = $("canvas");
+  if (window.io) {
+    $("url").innerHTML = "To Play Go To " + "goto.google.com/powpow or " +
+         window.location.href.replace(/\/[^/]*$/, '');
+  } else {
+    $("url").innerHTML = "!!DEBUG MODE!! -- Must run from server to play";
+  }
+
+  gl = tdl.webgl.setupWebGL(g_canvas, undefined, function() {});
+  if (gl) {
+    g_renderer = new WebGLRenderer(g_canvas, gl);
+  } else {
+    g_renderer = new CanvasRenderer(g_canvas);
+  }
+//    g_renderer = new CanvasRenderer(g_canvas);
+
+  connect();
+  sendCmd("server");
+
+  audio.init({
+    fire: {
+      filename: "assets/fire.ogg",
+      samples: 8,
+    },
+    explosion: {
+      filename: "assets/explosion.ogg",
+      samples: 6,
+    },
+    hitshield: {
+      filename: "assets/hitshield.ogg",
+      samples: 6,
+    },
+    launch: {
+      filename: "assets/launch.ogg",
+      samples: 2,
+    },
+    gameover: {
+      filename: "assets/gameover.ogg",
+      samples: 1,
+    },
+    play: {
+      filename: "assets/play.ogg",
+      samples: 1,
+    },
+  });
+  g_entitySys = new EntitySystem();
+  g_scoreMgr = new ScoreManager();
+  g_queueMgr = new QueueManager();
+
+  startMetaQueuePlayer();
+
+  // Add a 2 players if there is no communication
+  if (!window.io) {
+    startLocalPlayers();
+  }
+
+  var then = (new Date()).getTime() * 0.001;
+  render();
+
+  function render() {
+    var now = (new Date()).getTime() * 0.001;
+    var elapsedTime = now - then;
+    then = now;
+    tdl.webgl.requestAnimationFrame(render, g_canvas);
+
+    g_queueMgr.process(elapsedTime);
+    g_entitySys.processEntities(elapsedTime);
+    g_scoreMgr.update();
+
+    g_renderer.resize();
+    g_renderer.begin(elapsedTime);
+
+    g_metaQueuePlayer.draw(g_renderer);
+    for (var ii = 0; ii < g_activePlayers.length; ++ii) {
+      g_activePlayers[ii].draw(g_renderer);
+    }
+    for (var shotId in g_shotsById) {
+      g_shotsById[shotId].draw(g_renderer);
+    }
+
+    //g_queueMgr.draw();
+    g_scoreMgr.draw(g_renderer);
+    g_renderer.end(elapsedTime);
+
+    if (g_updateStatus) {
+      g_updateStatus = false;
+      g_queueMgr.draw();
+      g_scoreMgr.drawScores();
+    }
+
+    // turn off logging after 1 frame.
+    g_logGLCalls = false;
+  }
+}
+
+function startLocalPlayers() {
+  g_maxActivePlayers = 2;
+  var player1 = startPlayer(1);
+  var player2 = startPlayer(2);
+  var player3 = startPlayer(3); // in queue
+  var player4 = startPlayer(4); // in queue
+  var g_left = false;
+  var g_right = false;
+  var g_fire = false;
+  var g_keyState = { };
+  var g_oldKeyState = { };
+
+  // simulate clientside sendCmd
+  function sendCmd(cmd, data) {
+    player1.update(data);
+  }
+
+  function handleKeyDown(keyCode, state) {
+    switch(keyCode) {
+    case 37: // left
+      if (!g_left) {
+        g_left = true;
+        sendCmd("update", {
+            cmd: 'turn',
+            turn: -1
+        });
+      }
+      break;
+    case 39: // right
+      if (!g_right) {
+        g_right = true;
+        sendCmd("update", {
+            cmd: 'turn',
+            turn: 1
+        });
+      }
+      break;
+    case 90: // z
+      if (!g_fire) {
+        g_fire = true;
+        sendCmd("update", {
+            cmd: 'fire',
+            fire: 1
+        });
+      }
+      break;
+    }
+  }
+
+  function handleKeyUp(keyCode, state) {
+    switch(keyCode) {
+    case 37: // left
+      g_left = false;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: (g_right) ? 1 : 0
+      });
+      break;
+    case 39: // right
+      g_right = false;
+      sendCmd("update", {
+          cmd: 'turn',
+          turn: (g_left) ? -1 : 0
+      });
+      break;
+    case 90: // z
+      g_fire = false;
+      sendCmd("update", {
+          cmd: 'fire',
+          fire: 0
+      });
+      break;
+    }
+  }
+
+  function updateKey(keyCode, state) {
+    g_keyState[keyCode] = state;
+    if (g_oldKeyState != g_keyState) {
+      g_oldKeyState = state;
+      if (state) {
+        handleKeyDown(keyCode);
+      } else {
+        handleKeyUp(keyCode);
+      }
+    }
+  }
+
+  function keyUp(event) {
+    updateKey(event.keyCode, false);
+  }
+
+  function keyDown(event) {
+    updateKey(event.keyCode, true);
+  }
+
+  window.addEventListener("keyup", keyUp, false);
+  window.addEventListener("keydown", keyDown, false);
+}
+</script>
+<script id="screenVertexShader" type="whatever">
+uniform mat3 matrix;
+uniform vec2 screenDimensions;
+attribute vec2 position;
+
+void main() {
+  vec3 pos = vec3(-1, -1, 0) + matrix * vec3(position, 1) * vec3(screenDimensions, 0);
+  gl_Position = vec4(pos.x, -pos.y, 0, 1);
+}
+</script>
+<script id="screenFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform vec4 color;
+void main() {
+  gl_FragColor = color;
+}
+</script>
+<script id="twoToneVertexShader" type="whatever">
+uniform mat3 matrix;
+uniform vec2 screenDimensions;
+attribute vec2 position;
+attribute float colorMult;
+varying float v_colorMult;
+
+void main() {
+  vec3 pos = vec3(-1, -1, 0) + matrix * vec3(position, 1) * vec3(screenDimensions, 0);
+  gl_Position = vec4(pos.x, -pos.y, 0, 1);
+  v_colorMult = colorMult;
+}
+</script>
+<script id="twoToneFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform vec4 color;
+varying float v_colorMult;
+void main() {
+  gl_FragColor = color * vec4(v_colorMult, v_colorMult, v_colorMult, 1);
+}
+</script>
+<script id="persistVertexShader" type="whatever">
+attribute vec2 position;
+attribute vec2 texCoord;
+varying vec2 v_texCoord;
+void main() {
+  gl_Position = vec4(position, 0, 1);
+  v_texCoord = texCoord;
+}
+</script>
+<script id="persistFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform sampler2D newRender;
+uniform sampler2D oldRender;
+uniform float persistence;
+varying vec2 v_texCoord;
+void main() {
+  vec4 newColor = texture2D(newRender, v_texCoord);
+  vec4 oldColor = texture2D(oldRender, v_texCoord);
+  float alpha = newColor.a;
+  float mixAmount = length(newColor.xyz) * alpha;
+  mixAmount = mix(persistence, 1.0, alpha);
+  gl_FragColor =
+    vec4(
+      mix(oldColor.g, newColor.r, mixAmount),
+      mix(oldColor.b, newColor.g, mixAmount),
+      mix(oldColor.r, newColor.b, mixAmount),
+      1);
+}
+</script>
+<script id="mainVertexShader" type="whatever">
+attribute vec2 position;
+attribute vec2 texCoord;
+varying vec2 v_texCoord;
+void main() {
+  gl_Position = vec4(position, 0, 1);
+  v_texCoord = texCoord;
+}
+</script>
+<script id="mainFragmentShader" type="whatever">
+#ifdef GL_ES
+precision highp float;
+#endif
+uniform sampler2D texture;
+varying vec2 v_texCoord;
+void main() {
+  vec4 color = texture2D(texture, v_texCoord);
+  gl_FragColor = color;
+}
+</script>
+</head>
+<body>
+<div id="outer">
+  <div id="main">
+    <div id="url">test</div>
+    <canvas id="canvas"></canvas>
+  </div>
+  <div id="status">
+    <div id="highscores-outer">
+      <div class="headline">High Score</div>
+      <div id="highscore"></div>
+    </div>
+    <div id="queue-outer">
+      <div class="headline">Waiting</div>
+      <div id="queue"></div>
+    </div>
+  </div>
+</div><div id="disconnected">
+  <div class="instruction">Disconnected</div>
+  <div id="reload">...lost connection to server (T_T)...</div>
+</div></body>
+</html>
+

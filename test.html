@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="user-scalable=no, width=device-width, height=device-height">
+<title>PowPow Feature Test</title>
+<style>
+html, body {
+  font-family: sans-serif;
+  width: 100%;
+  height: 100%;
+}
+#console {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+</style>
+<script type="text/javascript" src="tdl/base.js"></script>
+<script>
+tdl.require('tdl.webgl');
+
+window.onload = main;
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+var g_logs = {};
+
+
+function logTo(id, str) {
+  var lines = g_logs[id];
+  if (!lines) {
+    lines = [];
+    g_logs[id] = lines;
+  }
+  while (lines.length > 10) {
+    lines.shift();
+  }
+  lines.push(str);
+  var c = document.getElementById(id);
+  c.innerHTML = lines.join("<br/>");
+}
+
+function log() {
+  var s = ""
+  for (var ii = 0; ii < arguments.length; ++ii) {
+    s += arguments[ii].toString();
+  }
+  logTo("console", s);
+}
+
+function debugTouch(label, event) {
+  var allTouches = event.touches;
+  logTo("console", label);
+  for (var ii = 0; ii < allTouches.length; ++ii) {
+    var touch = allTouches[ii];
+    logTo("console", "  " + ii + ": " + touch.pageX + ", " + touch.pageY +
+          " cw: " + event.target.clientWidth +
+          " ch: " + event.target.clientHeight);
+  }
+}
+
+function touchMoveStart(event) {
+  event.preventDefault();
+  debugTouch("start", event);
+}
+
+function touchMoveMove(event) {
+  event.preventDefault();
+  debugTouch("move", event);
+}
+
+function touchMoveEnd(event) {
+  event.preventDefault();
+  debugTouch("end", event);
+}
+
+function touchMoveCancel(event) {
+  event.preventDefault();
+  debugTouch("cancel", event);
+}
+
+function main() {
+  var haveTouch = 'ontouchstart' in document;
+  var haveWebGL = false;
+  var canvas = document.createElement("canvas");
+  if (canvas) {
+    var gl = tdl.webgl.create3DContext(canvas);
+    if (gl) {
+      haveWebGL = true;
+    }
+  }
+  log("--start--")
+  log("Supports WebSockets:", window.WebSocket ? "YES" : "no");
+  log("Supports WebGL:", haveWebGL ? "YES" : "no");
+  log("Supports Touch Events:", haveTouch ? "YES" : "no");
+  log("--end--")
+
+  if (haveTouch) {
+    var c = $("console");
+    c.addEventListener("touchstart", touchMoveStart, false);
+    c.addEventListener("touchmove", touchMoveMove, false);
+    c.addEventListener("touchend", touchMoveEnd, false);
+    c.addEventListener("touchcancel", touchMoveCancel, false);
+  }
+}
+</script>
+</head>
+<body>
+  <div id="console"></div>
+</body>
+</html>
+
+
