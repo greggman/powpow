@@ -186,7 +186,7 @@ io.on('connection', function(client){
   });
 
   client.on('message', function(message){
-    console.log("msg:" + message);
+    //console.log("msg:" + message);
     processMessage(client, message);
   });
 

@@ -10,13 +10,17 @@ html, body {
   border: 0px;
   padding: 0px;
   margin: 0px;
-  background-color: blue;
+  background-color: black; /* blue; */
   font-family: sans-serif;
+}
+.instruction {
+  color: rgba(255,255,255,0.7);
 }
 #surface {
   width: 100%;
   height: 100%;
-  background-color: green;
+  gbackground-color: green;
+  gbackground-image: url(assets/background.jpg);
 }
 #status {
   gbackground-color: red;
@@ -61,8 +65,11 @@ html, body {
   z-index: 500;
 }
 #ship {
-  width: 300px;
-  height: 300px;
+  position: absolute;
+  left: 25%;
+  top: 25%;
+  width: 50%;
+  height: auto;
 }
 #controls {
   position: absolute;
@@ -84,8 +91,8 @@ html, body {
   width: 50%;
   height: 100%;
   vertical-align: middle;
-  color: black;
-  background-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.5); /* black; */
+  gbackground-color: rgba(255, 255, 255, 0.2);
   display: table-cell;
 }
 #tcmove.move, #tcfire.fire {
@@ -96,8 +103,8 @@ html, body {
   width: 50%;
   height: 100%;
   vertical-align: middle;
-  color: white;
-  background-color: rgba(0, 0, 0, 0.2);
+  color: rgba(255, 255, 255, 0.75); /* white; */
+  gbackground-color: rgba(0, 0, 0, 0.2);
 }
 #singleTouchControls .stmove {
   width: 100%;
@@ -113,7 +120,7 @@ html, body {
 }
 #text {
   height: 10%;
-  background-color: black;
+  background-color: blue;
 }
 #input {
   display: none;
@@ -162,7 +169,7 @@ var g_startY;
 var g_startTime;
 var g_state = ""
 var g_count;
-var g_playerColor;
+var g_playerColor = "black";
 var g_playerStyle;
 
 function $(id) {
@@ -287,22 +294,23 @@ function process() {
 function processMessage(msg) {
   switch (msg.cmd) {
   case 'setColor':
-    var e = $("surface");
+    //var e = $("surface");
     //e.style.backgroundColor = msg.color;
     var canvas = document.createElement("canvas");
     canvas.width = 150;
     canvas.height = 150;
-    var ctx = $("ship").getContext("2d");
+    var xOff = canvas.width / 2;
+    var yOff = canvas.height / 2;
+    var ctx = canvas.getContext("2d");
     var styleName = ships.styles[msg.style];
     for (var yy = -2; yy <= 2; ++yy) {
       for (var xx = -2; xx <=2; ++xx) {
-        ships.drawShip(ctx, xx + 20, yy + 20, Math.PI, "#000");
+        ships.drawShip(ctx, xx + xOff, yy + yOff, Math.PI, "#000");
       }
     }
-    ships[styleName](ctx, 20, 20, Math.PI, msg.color);
-    var img = document.createElement("img");
-    img.src = canvas.toDataURL();
-    e.style.backgroundImage = img;
+    ships[styleName](ctx, xOff, yOff, Math.PI, msg.color);
+    $("ship").src = canvas.toDataURL();
+    //e.style.backgroundImage = "url(" + canvas.toDataURL() + ")";
     break;
   case 'setName':
     g_name = msg.name;
@@ -372,7 +380,7 @@ function touchMoveMove(event) {
     var touch = allTouches[ii];
     var dx = touch.pageX - g_dirTouchStart;
     //logTo("status", dx)
-    var fudge = 20
+    var fudge = 10
     if (dx < -fudge) {
       if (!g_left) {
         g_left = 1;
@@ -634,6 +642,7 @@ function enterName(event) {
   $('msg').style.display = "none";
   $('msg').style.color = "#FFF";
   $('input').style.display = "block";
+  $('input').focus();
   sendCmd("update", {
       cmd: 'busy',
       busy: true
@@ -679,7 +688,7 @@ function main() {
     }
   });
 
-  ships.setShipSize(140);
+  ships.setShipSize(70);
 
   // Get the name user set before.
   g_name = readCookie("name");
@@ -734,9 +743,9 @@ function main() {
 </head>
 <body>
 <div id="surface">
+  <img id="ship" src="assets/background.jpg" />
   <div id="status"></div>
-  <div id="console">
-  </div>
+  <div id="console"></div>
 </div>
 <div id="top">
   <div id="text">

@@ -93,7 +93,6 @@ tdl.require('tdl.webgl');
 
 window.onload = main;
 
-var g_maxActivePlayers = 6;
 var g_playerCount = 1;
 var g_totalPlayerCount = 0;
 var g_canvas;
@@ -110,6 +109,18 @@ var g_logGLCalls = false;
 var g_renderer;
 var g_updateStatus = false;
 var g_startCount = Math.floor(Math.random() * 100);
+
+// You can set these from the URL with
+// http://path/gameview.html?settings={name:value,name:value}
+var g = {
+  maxActivePlayers: 6,
+  playerVelocity: 200,
+  playerTurnVelocity: Math.PI * 0.5,
+  invincibilityDuration: 3,
+  maxShots: 2,
+  shotDuration: 3,
+  shotVelocity: 300,
+};
 
 // g_debug = true;
 // g_logGLCalls = true;
@@ -291,10 +302,10 @@ function CanvasRenderer(canvas) {
   ];
 
   this.shieldColors = [
-  "#00F",
-  "#88F",
-  "#FFF",
-  "#88F"
+    "#00F",
+    "#88F",
+    "#FFF",
+    "#88F"
   ];
 }
 
@@ -345,7 +356,7 @@ CanvasRenderer.prototype.end = function(elapsedTime) {
     var l = Math.max(0, shieldhit.timer / 1);
     var radius = (1 - (shieldhit.timer / 1)) * 10 + 5;
     ctx.save();
-  ctx.lineWidth = 2;
+    ctx.lineWidth = 2;
     ctx.strokeStyle = "rgba(128,128,255," + l + ")";
     ctx.translate(shieldhit.x, shieldhit.y);
     ctx.beginPath();
@@ -832,13 +843,15 @@ WebGLRenderer.prototype.end = function(elapsedTime) {
   gl.colorMask(true, true, true, false);
   gl.clearColor(0,0,0,0);
   gl.clearDepth(1);
-  gl.depthMask(true);  // Bug in Chrome?
+  gl.depthMask(true);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
   this.lastPlane.drawPrep();
   this.lastPlane.draw({texture: this.persistentFBO2.texture});
   this.starParticleSystem.draw(this.projection, this.world, this.viewInverse);
   var lm = this.leadMarkInfo;
-  this.drawLeadMark_([lm.x, lm.y], lm.direction, lm.color);
+  if (lm.on) {
+    this.drawLeadMark_([lm.x, lm.y], lm.direction, lm.color);
+  }
   gl.disable(gl.DEPTH_TEST);
   gl.disable(gl.BLEND);
 
@@ -990,6 +1003,7 @@ WebGLRenderer.prototype.drawShield = function(position, direction, color) {
 
 WebGLRenderer.prototype.drawLeadMark = function(position, direction, color) {
   var lm = this.leadMarkInfo;
+  lm.on = true;
   lm.x = position[0];
   lm.y = position[1];
   lm.direction = direction;
@@ -1092,11 +1106,11 @@ function Player(x, y, direction, clientId, opt_name) {
   this.targetDir = -1;
   this.direction = direction;
   this.fire = false;
-  this.vel = 200;
-  this.turnVel = Math.PI * 0.5;
+  this.vel = g.playerVelocity;
+  this.turnVel = g.playerTurnVelocity;
   this.shots = [];
-  this.maxShots = 2;
-  this.shotDuration = 3;
+  this.maxShots = g.maxShots;
+  this.shotDuration = g.shotDuration;
   this.shootTimer = 0;
   this.score = 0;
   this.timer = 0;
@@ -1254,7 +1268,7 @@ Player.prototype.state_countdown = function(elapsedTime) {
 Player.prototype.state_launch = function(elapsedTime) {
   this.updateDirection(elapsedTime);
   if (this.timesUp(elapsedTime)) {
-    this.invincibilityTimer = 3;
+    this.invincibilityTimer = g.invincibilityDuration;
     this.setState('fly');
   }
 };
@@ -1509,7 +1523,7 @@ MetaQueuePlayer.prototype.state_die = function(elapsedTime) {
 function Shot(x, y, direction, owner) {
   this.owner = owner;
   this.position = [x, y];
-  this.vel = 300;
+  this.vel = g.shotVelocity;
   this.duration = owner.shotDuration;
   this.direction = direction;
   this.drawCount = 0;
@@ -1589,6 +1603,7 @@ function PListManager(element) {
   this.shipImages_ = [];
   this.shipImageCursors_ = [];
   this.shipURLs_ = [];
+  this.elementHeight_;
 
   var canvas = document.createElement("canvas");
   canvas.width = 32;
@@ -1614,6 +1629,8 @@ function PListManager(element) {
 PListManager.prototype.begin = function() {
   this.cursor_ = 0;
   this.shipImageCursors_ = [0, 0, 0];
+  this.maxHeight_ = this.element_.clientHeight;
+  this.height_ = 0;
 };
 
 /**
@@ -1667,6 +1684,9 @@ PListManager.prototype.getElement_ = function(index) {
       msg: msg,
       name: name
     };
+    if (!this.elementHeight_) {
+      this.elementHeight_ = line.clientHeight;
+    }
     this.elements_.push(element);
   }
   return element;
@@ -1688,21 +1708,24 @@ PListManager.prototype.getShipImg_ = function(style) {
 };
 
 PListManager.prototype.setElement = function(player, launching, msg) {
-  var img = this.getShipImg_(player.color.style);
-  var element = this.getElement_(this.cursor_++);
-  var child = element.img.firstChild;
-  if (child) {
-    element.img.removeChild(child);
-  }
-  element.img.appendChild(img);
-  element.line.style.display = "block";
-  element.msg.innerHTML = msg;
-  element.name.innerHTML = player.playerName;
-  element.span.style.backgroundColor = player.color.canvasColor;
-  if (launching) {
-    element.name.color = "#f00";
-  } else {
-    element.name.color = "#ff0";
+  this.height_ += (this.elementHeight_ || 0);
+  if (this.height_ <= this.maxHeight_) {
+    var img = this.getShipImg_(player.color.style);
+    var element = this.getElement_(this.cursor_++);
+    var child = element.img.firstChild;
+    if (child) {
+      element.img.removeChild(child);
+    }
+    element.img.appendChild(img);
+    element.line.style.display = "block";
+    element.msg.innerHTML = msg;
+    element.name.innerHTML = player.playerName;
+    element.span.style.backgroundColor = player.color.canvasColor;
+    if (launching) {
+      element.name.color = "#f00";
+    } else {
+      element.name.color = "#ff0";
+    }
   }
 };
 
@@ -1841,7 +1864,7 @@ QueueManager.prototype.process = function(elapsedTime) {
     this.timer_ -= elapsedTime;
   } else {
     if (this.queue_.length > 0 &&
-        g_activePlayers.length + this.launching_.length < g_maxActivePlayers) {
+        g_activePlayers.length + this.launching_.length < g.maxActivePlayers) {
       var player = this.queue_.shift()
       player.countdown();
       this.launching_.push(player);
@@ -1897,6 +1920,7 @@ ScoreManager.prototype.calculateScores = function() {
 
 ScoreManager.prototype.drawScores = function() {
   this.plist_.begin();
+
   for (var ii = 0; ii < this.orderedPlayers_.length; ++ii) {
     var player = this.orderedPlayers_[ii];
     var score = player.score.toString();
@@ -1917,10 +1941,11 @@ ScoreManager.prototype.draw = function(renderer) {
   if (this.orderedPlayers_.length > 1 &&
       this.orderedPlayers_[0].score > this.orderedPlayers_[1].score) {
     var lead = this.orderedPlayers_[0];
-    renderer.drawLeadMark(
-        lead.position, lead.direction,
-        {glColor: new Float32Array([1,0,0,1]), canvasColor:"rgb(255,0,0)"});
-
+    if (lead.state == 'fly') {
+      renderer.drawLeadMark(
+          lead.position, lead.direction,
+          {glColor: new Float32Array([1,0,0,1]), canvasColor:"rgb(255,0,0)"});
+    }
   }
 };
 
@@ -1962,10 +1987,14 @@ EntitySystem.prototype.processEntities = function(elapsedTime) {
 };
 
 function main() {
+  tdl.misc.applyUrlSettings(g);
+
   g_canvas = $("canvas");
-  if (window.io) {
-    $("url").innerHTML = "To Play Go To " + "goto.google.com/powpow or " +
-         window.location.href.replace(/\/[^/]*$/, '');
+  if (g.msg) {
+    $("url").innerHTML = msg;
+  } else if (window.io) {
+    $("url").innerHTML = "To Play Go To " +
+        window.location.href.replace(/\/[^/]*$/, '');
   } else {
     $("url").innerHTML = "!!DEBUG MODE!! -- Must run from server to play";
   }
@@ -2058,7 +2087,7 @@ function main() {
 }
 
 function startLocalPlayers() {
-  g_maxActivePlayers = 2;
+  g.maxActivePlayers = 2;
   var player1 = startPlayer(1);
   var player2 = startPlayer(2);
   var player3 = startPlayer(3); // in queue
