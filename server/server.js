@@ -133,12 +133,18 @@ sys.print("req: " + req.method + '\n');
     if (filePath == "/") {
       filePath = "/index.html";
     }
-    var fullPath = path.join(process.cwd(), filePath);
+    var cwd = process.cwd();
+    var fullPath = path.normalize(path.join(cwd, filePath));
     sys.print("path: " + fullPath + "\n");
+    if (cwd != fullPath.substring(0, cwd.length)) {
+      sys.print("forbidden: " + fullPath + "\n");
+      return send403(res);
+    }
     var mimeType = getMimeType(fullPath);
     if (mimeType) {
       fs.readFile(fullPath, function(err, data){
         if (err) {
+          sys.print("unknown file: " + fullPath + "\n");
           return send404(res);
         }
         if (startsWith(mimeType, "text")) {
@@ -161,6 +167,12 @@ sys.print("req: " + req.method + '\n');
 send404 = function(res){
   res.writeHead(404);
   res.write('404');
+  res.end();
+};
+
+send403 = function(res){
+  res.writeHead(403);
+  res.write('403');
   res.end();
 };
 
