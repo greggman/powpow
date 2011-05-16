@@ -135,12 +135,18 @@ sys.print("req: " + req.method + '\n');
     if (filePath == "/") {
       filePath = "/index.html";
     }
-    var fullPath = path.join(process.cwd(), filePath);
+    var cwd = process.cwd();
+    var fullPath = path.normalize(path.join(cwd, filePath));
     sys.print("path: " + fullPath + "\n");
+    if (cwd != fullPath.substring(0, cwd.length)) {
+      sys.print("forbidden: " + fullPath + "\n");
+      return send403(res);
+    }
     var mimeType = getMimeType(fullPath);
     if (mimeType) {
       fs.readFile(fullPath, function(err, data){
         if (err) {
+          sys.print("unknown file: " + fullPath + "\n");
           return send404(res);
         }
         if (startsWith(mimeType, "text")) {
@@ -166,6 +172,12 @@ send404 = function(res){
   res.end();
 };
 
+send403 = function(res){
+  res.writeHead(403);
+  res.write('403');
+  res.end();
+};
+
 sys.print("Listening on port: " + g.port + "\n");
 server.listen(g.port);
 
@@ -188,7 +200,7 @@ io.on('connection', function(client){
   });
 
   client.on('message', function(message){
-    console.log("msg:" + message);
+    //console.log("msg:" + message);
     processMessage(client, message);
   });
 

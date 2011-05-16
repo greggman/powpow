@@ -10,13 +10,17 @@ html, body {
   border: 0px;
   padding: 0px;
   margin: 0px;
-  background-color: blue;
+  background-color: black; /* blue; */
   font-family: sans-serif;
+}
+.instruction {
+  color: rgba(255,255,255,0.7);
 }
 #surface {
   width: 100%;
   height: 100%;
-  background-color: green;
+  gbackground-color: green;
+  gbackground-image: url(assets/waiting.png);
 }
 #status {
   gbackground-color: red;
@@ -53,6 +57,26 @@ html, body {
   position: relative;
   height: 90%;
 }
+#shipArea {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  border: 1px solid cyan;
+  z-index: 500;
+}
+#ship {
+  position: absolute;
+  left: 25%;
+  top: 25%;
+  width: 50%;
+  height: auto;
+}
+#controls {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  border: 1px solid yellow;
+}
 #keyControls {
   position: absolute;
   top: 0px;
@@ -67,8 +91,8 @@ html, body {
   width: 50%;
   height: 100%;
   vertical-align: middle;
-  color: black;
-  background-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.5); /* black; */
+  gbackground-color: rgba(255, 255, 255, 0.2);
   display: table-cell;
 }
 #tcmove.move, #tcfire.fire {
@@ -79,8 +103,8 @@ html, body {
   width: 50%;
   height: 100%;
   vertical-align: middle;
-  color: white;
-  background-color: rgba(0, 0, 0, 0.2);
+  color: rgba(255, 255, 255, 0.75); /* white; */
+  gbackground-color: rgba(0, 0, 0, 0.2);
 }
 #singleTouchControls .stmove {
   width: 100%;
@@ -96,7 +120,7 @@ html, body {
 }
 #text {
   height: 10%;
-  background-color: black;
+  background-color: blue;
 }
 #input {
   display: none;
@@ -120,8 +144,10 @@ html, body {
 <link rel="stylesheet" media="all and (max-device-width: 900px) and (orientation:landscape)" href="phone-landscape.css">
 <link rel="stylesheet" media="all and (min-device-width: 1025px)" href="monitor.css">
 <script type="text/javascript" src="../socket.io/socket.io.js"></script>
+<script type="text/javascript" src="ships.js"></script>
 <script type="text/javascript" src="tdl/base.js"></script>
 <script>
+tdl.require('audio');
 tdl.require('tdl.log');
 window.onload = main;
 
@@ -141,6 +167,10 @@ var g_canvas;
 var g_startX;
 var g_startY;
 var g_startTime;
+var g_state = ""
+var g_count;
+var g_playerColor = "black";
+var g_playerStyle;
 
 function $(id) {
   return document.getElementById(id);
@@ -232,11 +262,55 @@ function sendCmd(cmd, data) {
   });
 }
 
+
+g_states = {
+  launch: function() {
+    --g_count;
+    var e = $("surface");
+    if (g_count > 0) {
+      e.style.backgroundColor = (g_count % 2) ? "#0f0" : "#fff";
+      setTimeout(process, 100);
+    } else {
+      e.style.backgroundColor = g_playerColor;
+    }
+  },
+
+  die: function() {
+    --g_count;
+    var e = $("surface");
+    if (g_count > 0) {
+      e.style.backgroundColor = (g_count % 2) ? "#f00" : "#ff0";
+      setTimeout(process, 100);
+    } else {
+      e.style.backgroundColor = g_playerColor;
+    }
+  }
+};
+
+function process() {
+  g_states[g_state]();
+};
+
 function processMessage(msg) {
   switch (msg.cmd) {
   case 'setColor':
-    var e = $("surface");
-    e.style.backgroundColor = msg.color;
+    //var e = $("surface");
+    //e.style.backgroundColor = msg.color;
+    var canvas = document.createElement("canvas");
+    canvas.width = 150;
+    canvas.height = 150;
+    var xOff = canvas.width / 2;
+    var yOff = canvas.height / 2;
+    var ctx = canvas.getContext("2d");
+    var styleName = ships.styles[msg.style];
+    for (var yy = -2; yy <= 2; ++yy) {
+      for (var xx = -2; xx <=2; ++xx) {
+        ships.drawShip(ctx, xx + xOff, yy + yOff, Math.PI, "#000");
+      }
+    }
+    ships[styleName](ctx, xOff, yOff, Math.PI, msg.color);
+    $("ship").src = canvas.toDataURL();
+    //e.style.backgroundImage = "url(" + canvas.toDataURL() + ")";
     break;
   case 'setName':
     g_name = msg.name;
@@ -249,12 +323,20 @@ function processMessage(msg) {
     $('msg').style.color = '#0FF';
     break;
   case 'die':
-    $('msg').innerHTML = 'Killed by ' + msg.killer;
+    audio.play_sound('explosion');
+    $('msg').innerHTML = (msg.crash ? 'Crashed into ' : 'Killed by ') + msg.killer;
     $('msg').style.color = '#F00';
+    g_state = "die";
+    g_count = 20;
+    setTimeout(process, 100);
     break;
   case 'launch':
+    audio.play_sound('launching');
     $('msg').innerHTML = 'Launch!';
     $('msg').style.color = '#FF0';
+    g_state = "launch";
+    g_count = 30;
+    setTimeout(process, 100);
     break;
   case 'queue':
     $('msg').innerHTML = msg.count > 0 ?
@@ -298,7 +380,7 @@ function touchMoveMove(event) {
     var touch = allTouches[ii];
     var dx = touch.pageX - g_dirTouchStart;
     //logTo("status", dx)
-    var fudge = 20
+    var fudge = 10
     if (dx < -fudge) {
       if (!g_left) {
         g_left = 1;
@@ -560,6 +642,7 @@ function enterName(event) {
   $('msg').style.display = "none";
   $('msg').style.color = "#FFF";
   $('input').style.display = "block";
+  $('input').focus();
   sendCmd("update", {
       cmd: 'busy',
       busy: true
@@ -593,6 +676,19 @@ function reloadPage() {
 
 function main() {
   connect();
+
+  audio.init({
+    explosion: {
+      filename: "assets/explosion.ogg",
+      samples: 1,
+    },
+    launching: {
+      filename: "assets/launching.ogg",
+      samples: 1,
+    }
+  });
+
+  ships.setShipSize(70);
 
   // Get the name user set before.
   g_name = readCookie("name");
@@ -647,9 +743,9 @@ function main() {
 </head>
 <body>
 <div id="surface">
+  <img id="ship" src="assets/waiting.png" />
   <div id="status"></div>
-  <div id="console">
-  </div>
+  <div id="console"></div>
 </div>
 <div id="top">
   <div id="text">
