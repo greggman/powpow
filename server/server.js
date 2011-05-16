@@ -12,12 +12,14 @@ function extension(path) {
 var getMimeType = function() {
   var mimeTypeMap = {
     '.jpg':  'image/jpeg',
+    '.gif':  'image/gif',
     '.png':  'image/png',
     '.css':  'text/css',
     '.ogg':  'audio/ogg',
     '.wav':  'audio/wav',
     '.mp3':  'audio/mp3',
     '.js':   'text/javascript',
+    '.json': 'application/json',
     '.html': 'text/html'
   };
 
