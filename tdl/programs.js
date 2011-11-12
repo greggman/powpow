@@ -39,24 +39,13 @@ tdl.provide('tdl.programs');
 
 tdl.require('tdl.log');
 tdl.require('tdl.string');
+tdl.require('tdl.webgl');
 
 /**
  * A module for programs.
  * @namespace
  */
 tdl.programs = tdl.programs || {};
-
-/**
- * All the programs currently loaded.
- * @type {!Object.<string, !tdl.programs.Program>}
- */
-tdl.programs.programDB = {};
-
-/**
- * All the programs currently loaded.
- * @type {!Object.<string, !WebGLShader>}
- */
-tdl.programs.shaderDB = {};
 
 /**
  * Loads a program from script tags.
@@ -89,7 +78,8 @@ tdl.programs.loadProgramFromScriptTags = function(
  */
 tdl.programs.loadProgram = function(vertexShader, fragmentShader) {
   var id = vertexShader + fragmentShader;
-  var program = tdl.programs.programDB[id];
+  tdl.programs.init_();
+  var program = gl.tdl.programs.programDB[id];
   if (program) {
     return program;
   }
@@ -99,7 +89,7 @@ tdl.programs.loadProgram = function(vertexShader, fragmentShader) {
     tdl.error(e);
     return null;
   }
-  tdl.programs.programDB[id] = program;
+  gl.tdl.programs.programDB[id] = program;
   return program;
 };
 
@@ -119,17 +109,14 @@ tdl.programs.Program = function(vertexShader, fragmentShader) {
    */
   var loadShader = function(gl, shaderSource, shaderType) {
     var id = shaderSource + shaderType;
-// TODO(gman): Uncomment after ANGLE bug is fixed
-//    var shader = tdl.programs.shaderDB[id];
-//    if (shader) {
-//      return shader;
-//    }
+    tdl.programs.init_();
+    var shader = gl.tdl.programs.shaderDB[id];
+    if (shader) {
+      return shader;
+    }
 
     // Create the shader object
     var shader = gl.createShader(shaderType);
-    if (shader == null) {
-      throw("*** Error: unable to create shader '"+shaderSource+"'");
-    }
 
     // Load the shader source
     gl.shaderSource(shader, shaderSource);
@@ -139,14 +126,14 @@ tdl.programs.Program = function(vertexShader, fragmentShader) {
 
     // Check the compile status
     var compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
-    if (!compiled) {
+    if (!compiled && !gl.isContextLost()) {
       // Something went wrong during compilation; get the error
       tdl.programs.lastError = gl.getShaderInfoLog(shader);
       gl.deleteShader(shader);
       throw("*** Error compiling shader :" + tdl.programs.lastError);
     }
 
-    tdl.programs.shaderDB[id] = shader;
+    gl.tdl.programs.shaderDB[id] = shader;
     return shader;
   }
 
@@ -190,7 +177,7 @@ tdl.programs.Program = function(vertexShader, fragmentShader) {
 
     // Check the link status
     var linked = gl.getProgramParameter(program, gl.LINK_STATUS);
-    if (!linked) {
+    if (!linked && !gl.isContextLost()) {
       // something went wrong with the link
       tdl.programs.lastError = gl.getProgramInfoLog (program);
       throw("*** Error in program linking:" + tdl.programs.lastError);
@@ -199,7 +186,7 @@ tdl.programs.Program = function(vertexShader, fragmentShader) {
 
   // Compile shaders
   var program = loadProgram(gl, vertexShader, fragmentShader);
-  if (!program) {
+  if (!program && !gl.isContextLost()) {
     throw ("could not compile program");
   }
 
@@ -361,6 +348,24 @@ tdl.programs.Program = function(vertexShader, fragmentShader) {
   this.attrib = attribs;
   this.attribLoc = attribLocs;
   this.uniform = uniforms;
+};
+
+tdl.programs.handleContextLost_ = function() {
+  if (gl.tdl && gl.tdl.programs && gl.tdl.programs.shaderDB) {
+    delete gl.tdl.programs.shaderDB;
+    delete gl.tdl.programs.programDB;
+  }
+};
+
+tdl.programs.init_ = function() {
+  if (!gl.tdl.programs) {
+    gl.tdl.programs = { };
+    tdl.webgl.registerContextLostHandler(tdl.programs.handleContextLost_, true);
+  }
+  if (!gl.tdl.programs.shaderDB) {
+    gl.tdl.programs.shaderDB = { };
+    gl.tdl.programs.programDB = { };
+  }
 };
 
 tdl.programs.Program.prototype.use = function() {
