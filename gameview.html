@@ -73,8 +73,6 @@ html, body {
   z-index: 1000
 }
 </style>
-<!-- Note: Socket IO is served from the socket io based server -->
-<script type="text/javascript" src="socket.io/socket.io.js"></script>
 <script type="text/javascript" src="ships.js"></script>
 <script type="text/javascript" src="tdl/base.js"></script>
 <script type="text/javascript" src="audio.js"></script>
@@ -93,6 +91,7 @@ tdl.require('tdl.webgl');
 
 window.onload = main;
 
+var g_haveServer = true;
 var g_playerCount = 1;
 var g_totalPlayerCount = 0;
 var g_canvas;
@@ -129,6 +128,7 @@ var g = {
 var g_entitySys;
 var g_queueMgr;
 var g_scoreMgr;
+var g_sendQueue = [];
 
 function $(id) {
   return document.getElementById(id);
@@ -173,25 +173,27 @@ function LogGLCall(functionName, args) {
 }
 
 function connect(server, port) {
-  if (!window.io) {
-    g_socket = {
-      send: function() { }
-    };
-    return;
-  }
-  var server = window.location.href.match(/\/\/(.*?)\//)[1];
-  g_socket = new io.Socket(null, {
-      port: port || g.port,
-      transports: ['websocket']});
-  g_socket.connect();
-  g_socket.on('connect', connected);
-  g_socket.on('message', function(obj) {
+  var server = "ws:" + window.location.host;
+  g_sendQueue = [];
+  g_socket = new WebSocket(server);
+  g_socket.onopen = connected;
+  g_socket.onmessage = function(event) {
+    var obj = JSON.parse(event.data);
     processMessage(obj);
-  });
-  g_socket.on('disconnect', disconnected);
+  };
+  g_socket.onclose = disconnected;
+  g_socket.onerror = function() {
+    tdl.log("SOCKET ERROR!!!");
+    g_socket.close();
+    disconnected();
+  }
 }
 
 function connected() {
+  for (var ii = 0; ii < g_sendQueue.length; ++ii) {
+    g_socket.send(g_sendQueue[ii]);
+  }
+  g_sendQueue = [];
   $('outer').style.display = "block";
   $('disconnected').style.display = "none";
 }
@@ -209,11 +211,16 @@ function disconnected() {
 }
 
 function sendCmd(cmd, id, data) {
-  g_socket.send({
+  var msg = JSON.stringify({
     cmd: cmd,
     id: id,
     data: data
   });
+  if (g_socket.readyState == WebSocket.CONNECTING) {
+    g_sendQueue.push(msg);
+  } else {
+    g_socket.send(msg);
+  }
 }
 
 function processMessage(msg) {
@@ -1126,7 +1133,7 @@ function Player(x, y, direction, clientId, opt_name) {
   if (isMetaQueuePlayer) {
     this.setState('fly');
   } else {
-    if (window.io || g_activePlayers.length >= 2) {
+    if (g_haveServer || g_activePlayers.length >= 2) {
       this.addToQueue();
     } else {
       this.setState('fly');
@@ -1992,7 +1999,7 @@ function main() {
   g_canvas = $("canvas");
   if (g.msg) {
     $("url").innerHTML = g.msg;
-  } else if (window.io) {
+  } else if (g_haveServer) {
     $("url").innerHTML = "To Play Go To " +
         window.location.href.replace(/\/[^/]*$/, '');
   } else {
@@ -2043,7 +2050,7 @@ function main() {
   startMetaQueuePlayer();
 
   // Add a 2 players if there is no communication
-  if (!window.io) {
+  if (!g_haveServer) {
     startLocalPlayers();
   }
 
