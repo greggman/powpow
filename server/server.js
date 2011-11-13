@@ -49,7 +49,7 @@ var applySettings = function(obj, dst) {
 var http = require('http'),
     url = require('url'),
     fs = require('fs'),
-    io = require('../socket.io/'),
+    WebSocketServer = require('../websocket/').server,
     sys = require('sys'),
     path = require('path'),
     querystring = require('querystring');
@@ -181,17 +181,26 @@ send403 = function(res){
 sys.print("Listening on port: " + g.port + "\n");
 server.listen(g.port);
 
-// socket.io, I choose you
-// simplest chat application evar
-var io = io.listen(server),
-    buffer = [];
+var wsServer = new WebSocketServer({
+    httpServer: server,
+    autoAcceptConnections: false
+  });
 
+var g_nextSessionId = 1;
 var g_clients = {};
 var g_numClients = 0;
 var g_servers = {};
 var g_numServers = 0;
 
-io.on('connection', function(client){
+function broadcast(message) {
+  for (var id in g_clients) {
+    g_clients[id].sendUTF(message);
+  }
+}
+
+wsServer.on('request', function(request) {
+  console.log("new connection from: " + request.origin + "\n");
+  var client = request.accept(null, request.origin);
   addClient(client);
 
   sendMsgToServer({
@@ -200,11 +209,18 @@ io.on('connection', function(client){
   });
 
   client.on('message', function(message){
-    //console.log("msg:" + message);
-    processMessage(client, message);
+    switch (message.type) {
+    case 'utf8':
+      //console.log("msg:" + message.utf8Data);
+      processMessage(client, JSON.parse(message.utf8Data));
+      break;
+    default:
+      console.log("ERROR: unknown message type: " + message.type);
+      break;
+    }
   });
 
-  client.on('disconnect', function() {
+  client.on('close', function() {
     if (!removeServer(client)) {
       sendMsgToServer({
         cmd: 'remove',
@@ -216,6 +232,7 @@ io.on('connection', function(client){
 });
 
 function addClient(client) {
+  client.sessionId = g_nextSessionId++;
   g_clients[client.sessionId] = client;
   ++g_numClients;
   console.log("add: num clients: " + g_numClients);
@@ -260,7 +277,7 @@ function sendMsgToServer(msg) {
   }
   for (var id in g_servers) {
     var server = g_servers[id];
-    server.send(msg);
+    server.sendUTF(JSON.stringify(msg));
     haveServer = true;
   }
 }
@@ -309,7 +326,7 @@ function processMessage(client, message) {
     case 'client': {
       var client = g_clients[message.id];
       if (client) {
-        client.send(message.data);
+        client.sendUTF(JSON.stringify(message.data));
       } else {
         console.log("no client: " + message.id);
       }
