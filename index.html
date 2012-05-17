@@ -143,6 +143,7 @@ html, body {
 <link rel="stylesheet" media="all and (max-device-width: 900px) and (orientation:portrait)" href="phone-portrait.css">
 <link rel="stylesheet" media="all and (max-device-width: 900px) and (orientation:landscape)" href="phone-landscape.css">
 <link rel="stylesheet" media="all and (min-device-width: 1025px)" href="monitor.css">
+<script type="text/javascript" src="/socket.io/socket.io.js"></script>
 <script type="text/javascript" src="ships.js"></script>
 <script type="text/javascript" src="tdl/base.js"></script>
 <script>
@@ -220,25 +221,25 @@ function eraseCookie(name) {
 }
 
 function connect(server, port) {
-  var server = "ws:" + window.location.host;
-  g_sendQueue = [];
-  g_socket = new WebSocket(server);
-  g_socket.onopen = connected;
-  g_socket.onmessage = function(event) {
-    var obj = JSON.parse(event.data);
-    processMessage(obj);
-  };
-  g_socket.onclose = disconnected;
-  g_socket.onerror = function() {
-    tdl.log("SOCKET ERROR!!!");
-    g_socket.close();
-    disconnected();
+  if (!window.io) {
+    g_socket = {
+      send: function() { }
+    };
+    return;
   }
+  var url = "http://" + window.location.host;
+  g_sendQueue = [];
+  g_socket = io.connect(url);
+  g_socket.on('connect', connected);
+  g_socket.on('message', function(obj) {
+    processMessage(obj);
+  });
+  g_socket.on('disconnect', disconnected);
 }
 
 function connected() {
   for (var ii = 0; ii < g_sendQueue.length; ++ii) {
-    g_socket.send(g_sendQueue[ii]);
+    g_socket.emit('message', g_sendQueue[ii]);
   }
   g_sendQueue = [];
   tdl.log("connected");
@@ -251,14 +252,14 @@ function disconnected() {
 }
 
 function sendCmd(cmd, data) {
-  var msg = JSON.stringify({
+  var msg = {
     cmd: cmd,
     data: data
-  });
+  };
   if (g_socket.readyState == WebSocket.CONNECTING) {
     g_sendQueue.push(msg);
   } else {
-    g_socket.send(msg);
+    g_socket.emit('message', msg);
   }
 }
 
