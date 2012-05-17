@@ -46,13 +46,13 @@ var applySettings = function(obj, dst) {
   }
 };
 
-var http = require('http'),
-    url = require('url'),
-    fs = require('fs'),
-    WebSocketServer = require('websocket').server,
-    sys = require('sys'),
-    path = require('path'),
-    querystring = require('querystring');
+var http = require('http');
+var url = require('url');
+var fs = require('fs');
+var io = require('socket.io');
+var sys = require('sys');
+var path = require('path');
+var querystring = require('querystring');
 
 for (var ii = 2; ii < process.argv.length; ++ii) {
     var flag = process.argv[ii];
@@ -178,13 +178,9 @@ send403 = function(res){
   res.end();
 };
 
+io = io.listen(server);
 sys.print("Listening on port: " + g.port + "\n");
 server.listen(g.port);
-
-var wsServer = new WebSocketServer({
-    httpServer: server,
-    autoAcceptConnections: false
-  });
 
 var g_nextSessionId = 1;
 var g_clients = {};
@@ -194,45 +190,38 @@ var g_numServers = 0;
 
 function broadcast(message) {
   for (var id in g_clients) {
-    g_clients[id].sendUTF(message);
+    g_clients[id].emit('message', message);
   }
 }
 
-wsServer.on('request', function(request) {
-  console.log("new connection from: " + request.origin + "\n");
-  var client = request.accept(null, request.origin);
-  addClient(client);
+io.sockets.on('connection', function(client){
+	addClient(client);
 
-  sendMsgToServer({
-      cmd: 'start',
-      id: client.sessionId,
-  });
+	sendMsgToServer({
+		cmd: 'start',
+		id: client.sessionId,
+	});
 
-  client.on('message', function(message){
-    switch (message.type) {
-    case 'utf8':
-      //console.log("msg:" + message.utf8Data);
-      processMessage(client, JSON.parse(message.utf8Data));
-      break;
-    default:
-      console.log("ERROR: unknown message type: " + message.type);
-      break;
-    }
-  });
+	client.on('message', function(message){
+		console.log("cid:" + client.sessionId + " msg:" + message);
+		processMessage(client, message);
+	});
 
-  client.on('close', function() {
-    if (!removeServer(client)) {
-      sendMsgToServer({
-        cmd: 'remove',
-        id: client.sessionId,
-      });
-      removeClient(client);
-    }
-  });
+	client.on('disconnect', function(){
+		if (!removeServer(client)){
+			sendMsgToServer({
+				cmd: 'remove',
+				id: client.sessionId,
+			});
+			removeClient(client);
+		}
+	});
 });
+
 
 function addClient(client) {
   client.sessionId = g_nextSessionId++;
+  sys.print("connection: cid:" + client.sessionId + "\n");
   g_clients[client.sessionId] = client;
   ++g_numClients;
   console.log("add: num clients: " + g_numClients);
@@ -240,10 +229,12 @@ function addClient(client) {
 
 function removeClient(client) {
   delete g_clients[client.sessionId];
-  --g_numClients;
-  console.log("remove: num clients: " + g_numClients);
-  if (g_numClients == 0) {
-    console.log("all clients disconnected");
+  if (g_numClients) {
+    --g_numClients;
+    console.log("remove: num clients: " + g_numClients);
+    if (g_numClients == 0) {
+      console.log("all clients disconnected");
+    }
   }
 }
 
@@ -277,7 +268,7 @@ function sendMsgToServer(msg) {
   }
   for (var id in g_servers) {
     var server = g_servers[id];
-    server.sendUTF(JSON.stringify(msg));
+    server.emit('message', msg);
     haveServer = true;
   }
 }
@@ -326,9 +317,17 @@ function processMessage(client, message) {
     case 'client': {
       var client = g_clients[message.id];
       if (client) {
-        client.sendUTF(JSON.stringify(message.data));
+        client.emit('message', message.data);
       } else {
         console.log("no client: " + message.id);
+      }
+      break;
+    }
+    case 'broadcast': {
+      message.cmd = 'update';
+      for (var id in g_clients) {
+        sys.print("sending to: " + id);
+        g_clients[id].emit('message', message);
       }
       break;
     }

@@ -73,6 +73,7 @@ html, body {
   z-index: 1000
 }
 </style>
+<script type="text/javascript" src="/socket.io/socket.io.js"></script>
 <script type="text/javascript" src="ships.js"></script>
 <script type="text/javascript" src="tdl/base.js"></script>
 <script type="text/javascript" src="audio.js"></script>
@@ -172,26 +173,35 @@ function LogGLCall(functionName, args) {
   }
 }
 
+g_connected = false;
 function connect(server, port) {
+  if (!window.io)
+  {
+    tdl.log("no socket io");
+    g_socket = {
+      send: function()
+      {
+      }
+    };
+    return;
+  }
+
+  var url = "http://" + window.location.host;
+  tdl.log("connecting to: " + url);
   var server = "ws:" + window.location.host;
   g_sendQueue = [];
-  g_socket = new WebSocket(server);
-  g_socket.onopen = connected;
-  g_socket.onmessage = function(event) {
-    var obj = JSON.parse(event.data);
+  g_socket = io.connect(url);
+  g_socket.on('connect', connected);
+  g_socket.on('message', function(obj) {
     processMessage(obj);
-  };
-  g_socket.onclose = disconnected;
-  g_socket.onerror = function() {
-    tdl.log("SOCKET ERROR!!!");
-    g_socket.close();
-    disconnected();
-  }
+  });
+  g_socket.on('disconnect', disconnected);
 }
 
 function connected() {
+  g_connected = true;
   for (var ii = 0; ii < g_sendQueue.length; ++ii) {
-    g_socket.send(g_sendQueue[ii]);
+    g_socket.emit('message', g_sendQueue[ii]);
   }
   g_sendQueue = [];
   $('outer').style.display = "block";
@@ -199,6 +209,7 @@ function connected() {
 }
 
 function disconnected() {
+  g_connected = false;
   $('outer').style.display = "none";
   $('disconnected').style.display = "block";
   while (g_numPlayers > 0) {
@@ -211,15 +222,15 @@ function disconnected() {
 }
 
 function sendCmd(cmd, id, data) {
-  var msg = JSON.stringify({
+  var msg = {
     cmd: cmd,
     id: id,
     data: data
-  });
-  if (g_socket.readyState == WebSocket.CONNECTING) {
+  };
+  if (g_connected == WebSocket.CONNECTING) {
     g_sendQueue.push(msg);
   } else {
-    g_socket.send(msg);
+    g_socket.emit('message', msg);
   }
 }
 
